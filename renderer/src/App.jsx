@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import './App.css'; // Import file CSS
+import './App.css'; 
 
 function App() {
   const [url, setUrl] = useState('');
@@ -8,20 +8,16 @@ function App() {
   const [isDownloading, setIsDownloading] = useState(false);
   const logEndRef = useRef(null);
 
-  // --- State cho các tùy chọn tải xuống ---
   const [quality, setQuality] = useState('1080p');
   const [downloadThumbnail, setDownloadThumbnail] = useState(true);
   const [ignorePlaylist, setIgnorePlaylist] = useState(true);
-  
-  // --- State mới để quản lý việc mở rộng log ---
+
   const [isLogExpanded, setIsLogExpanded] = useState(false);
 
-  // Tự động cuộn log xuống dưới
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [log]);
 
-  // Lắng nghe log từ main process
   useEffect(() => {
     const removeListener = window.electronAPI.onDownloadLog((message) => {
       setLog(prevLog => prevLog + message);

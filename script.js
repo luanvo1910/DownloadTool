@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // --- KHAI BÁO CÁC BIẾN CHO GIAO DIỆN ---
     const canvas = document.getElementById('editor-canvas');
     const runButton = document.getElementById('runButton');
     const addImageButton = document.getElementById('addImageButton');
@@ -25,7 +24,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let allTemplates = [];
     let selectedElement = null;
 
-    // --- LOGIC KÉO THẢ VÀ THAY ĐỔI KÍCH THƯỚC ---
     interact('.edit-item')
         .draggable({
             listeners: {
@@ -60,7 +58,6 @@ document.addEventListener('DOMContentLoaded', () => {
             inertia: true,
         });
 
-    // --- LOGIC MENU CHUỘT PHẢI VÀ CHỌN ĐỐI TƯỢNG ---
     function selectElement(element) {
         document.querySelectorAll('.edit-item.selected').forEach(el => el.classList.remove('selected'));
         selectedElement = element;
@@ -123,7 +120,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- CÁC HÀM XỬ LÝ SỰ KIỆN NÚT BẤM ---
     browseButton.addEventListener('click', async () => {
         const path = await window.electronAPI.openDirectoryDialog();
         if (path) { savePathInput.value = path; }
@@ -143,7 +139,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- LOGIC QUẢN LÝ TEMPLATE ---
     function captureLayoutData() {
         const scaleFactor = 720 / canvas.offsetWidth;
         const layoutData = [];
@@ -241,7 +236,6 @@ document.addEventListener('DOMContentLoaded', () => {
         await loadAndRenderTemplates();
     });
     
-    // --- LOGIC CHẠY RENDER VÀ RESET ---
     function resetInterface() {
         urlInput.value = '';
         logOutput.textContent = '';
@@ -278,7 +272,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // --- LOGIC LOG VÀ CỬA SỔ LOG ---
     enlargeLogButton.addEventListener('click', () => {
         modalLogOutput.textContent = logOutput.textContent;
         modalLogOutput.scrollTop = modalLogOutput.scrollHeight;
@@ -316,6 +309,5 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Tải template lần đầu khi ứng dụng khởi động
     loadAndRenderTemplates();
 });

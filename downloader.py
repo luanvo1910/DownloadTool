@@ -4,14 +4,10 @@ import os
 import sys
 import io
 
-# =================================================================
-# Sửa lỗi mã hóa UTF-8 để hiển thị tiếng Việt trên terminal
-# =================================================================
 if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 if sys.stderr.encoding != 'utf-8':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-# =================================================================
 
 
 def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_playlist):
@@ -22,33 +18,28 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     print(f"STATUS: Sẽ lưu file vào: {save_path}")
     print(f"STATUS: Sử dụng resources từ: {resources_path}")
 
-    # --- Xác định đường dẫn đến các file thực thi và cấu hình ---
     yt_dlp_exe = os.path.join(resources_path, 'yt-dlp.exe')
     ffmpeg_exe = os.path.join(resources_path, 'ffmpeg.exe')
     aria2c_exe = os.path.join(resources_path, 'aria2c.exe')
     aria2c_conf = os.path.join(resources_path, 'aria2c.conf')
 
-    # Kiểm tra sự tồn tại của các file cần thiết
     if not all(os.path.exists(p) for p in [yt_dlp_exe, ffmpeg_exe, aria2c_exe, aria2c_conf]):
         print(f"ERROR: Thiếu file thực thi hoặc file cấu hình (yt-dlp, ffmpeg, aria2c, aria2c.conf) trong thư mục resources.")
         return
 
-    # --- Cấu hình các tham số một cách linh hoạt ---
     output_template = os.path.join(save_path, '%(title)s.%(ext)s')
     
-    # Dựa vào tham số quality để chọn format
+
     if quality == '1080p':
         format_selection = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
     elif quality == '720p':
         format_selection = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
-    else: # Mặc định là 'best'
+    else:
         format_selection = 'bestvideo+bestaudio/best'
 
-    # Tham số cho aria2c, sử dụng file cấu hình
     safe_save_path = os.path.abspath(save_path).replace('\\', '/')
     downloader_args_str = f'aria2c:--conf-path={aria2c_conf},--dir={safe_save_path}'
 
-    # --- Xây dựng lệnh command cuối cùng ---
     command = [
         yt_dlp_exe,
         '-f', format_selection,
@@ -59,7 +50,6 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         '--downloader-args', downloader_args_str,
     ]
 
-    # Thêm các cờ boolean vào đầu lệnh để ưu tiên
     if no_playlist:
         command.insert(1, '--no-playlist')
     if thumbnail:
@@ -75,7 +65,6 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
 
     print("STATUS: Đang thực thi lệnh...", flush=True)
 
-    # --- Chạy tiến trình và stream output ---
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -104,7 +93,6 @@ if __name__ == '__main__':
     parser.add_argument("--resources-path", required=True)
     parser.add_argument("--cookies-path", required=False, default=None)
     
-    # Thêm các đối số mới
     parser.add_argument("--quality", default='best', help="Chất lượng video: best, 1080p, 720p")
     parser.add_argument("--thumbnail", action='store_true', help="Cờ để tải thumbnail")
     parser.add_argument("--no-playlist", action='store_true', help="Cờ để bỏ qua playlist")

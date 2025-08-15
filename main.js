@@ -2,11 +2,13 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 
+let resourcesPath;
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 900,
-    icon: path.join(__dirname, 'assets/icon.png'), // Icon cửa sổ
+    icon: path.join(__dirname, 'assets/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -14,7 +16,6 @@ function createWindow() {
     },
   });
 
-  // Xử lý lỗi màn hình trắng khi build
   if (app.isPackaged) {
     win.loadFile(path.join(__dirname, 'renderer/dist/index.html'));
   } else {
@@ -23,7 +24,6 @@ function createWindow() {
   }
 }
 
-// Xử lý dialog chọn thư mục
 ipcMain.handle('dialog:selectDirectory', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openDirectory']
@@ -31,53 +31,28 @@ ipcMain.handle('dialog:selectDirectory', async () => {
   return canceled ? null : filePaths[0];
 });
 
-// Xử lý yêu cầu tải video với đầy đủ tùy chọn
 ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail, ignorePlaylist }) => {
-    
-    // Xác định đường dẫn đến thư mục resources
-    const resourcesPath = app.isPackaged
-        ? process.resourcesPath
-        : path.join(__dirname, 'resources');
 
-    // Đường dẫn đến file downloader.exe ở thư mục gốc
-    const downloaderExe = path.join(__dirname, 'downloader.exe');
+  const downloaderExe = path.join(resourcesPath, 'downloader.exe');
 
-    // Xây dựng mảng tham số một cách linh hoạt
-    const args = [
-        '--url', url,
-        '--save-path', savePath,
-        '--resources-path', resourcesPath,
-        '--quality', quality
-    ];
+  const args = [
+      '--url', url,
+      '--save-path', savePath,
+      '--resources-path', resourcesPath,
+      '--quality', quality
+  ];
+  if (downloadThumbnail) args.push('--thumbnail');
+  if (ignorePlaylist) args.push('--no-playlist');
 
-    // Chỉ thêm các cờ boolean nếu chúng là 'true'
-    if (downloadThumbnail) {
-        args.push('--thumbnail');
-    }
-    if (ignorePlaylist) {
-        args.push('--no-playlist');
-    }
-
-    const process = spawn(downloaderExe, args);
-
-    // Gửi log về giao diện
-    const sendLog = (data) => {
-        event.sender.send('download:log', data.toString());
-    };
-
-    process.stdout.on('data', sendLog);
-    process.stderr.on('data', sendLog); // Gửi cả lỗi về
-    process.on('close', (code) => {
-        sendLog(`\n--- Tiến trình kết thúc với mã ${code} ---\n`);
-    });
+  const process = spawn(downloaderExe, args);
+  const sendLog = (data) => event.sender.send('download:log', data.toString());
+  process.stdout.on('data', sendLog);
+  process.stderr.on('data', sendLog);
+  process.on('close', (code) => sendLog(`\n--- Tiến trình kết thúc với mã ${code} ---\n`));
 });
 
-
-// Quản lý vòng đời ứng dụng
-app.whenReady().then(createWindow);
-
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'downloader') {
     app.quit();
   }
 });
@@ -86,4 +61,10 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+app.whenReady().then(() => {
+  resourcesPath = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'resources');
+  
+  createWindow();
 });

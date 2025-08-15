@@ -28,17 +28,8 @@
     "extraResources": [
       {
         "from": "./resources",
-        "to": "./resources",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "./",
-        "to": "./",
-        "filter": [
-          "downloader.exe"
-        ]
+        "to": ".",
+        "filter": ["**/*"]
       }
     ],
     "win": {

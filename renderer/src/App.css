@@ -1,4 +1,3 @@
-/* --- Biến màu cho giao diện Tối --- */
 :root {
   --bg-color: #1a1a1a;
   --bg-secondary-color: #2c2c2c;
@@ -9,7 +8,6 @@
   --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-/* --- Style cơ bản --- */
 body {
   margin: 0;
   font-family: var(--font-family);
@@ -19,7 +17,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* --- Container chính --- */
 .container {
   margin: 50px;
   padding: 2rem;
@@ -35,7 +32,6 @@ h1 {
   font-weight: 600;
 }
 
-/* --- Nhóm Input và Label --- */
 .input-group {
   margin-bottom: 1.5rem;
 }
@@ -47,7 +43,6 @@ h1 {
   color: #b0b0b0;
 }
 
-/* --- Style đồng bộ cho Input và Select --- */
 input[type="text"],
 select {
   width: 100%;
@@ -73,7 +68,6 @@ input[type="text"][readOnly] {
   cursor: not-allowed;
 }
 
-/* --- Container cho Input + Nút --- */
 .path-container {
   display: flex;
   gap: 0.5rem;
@@ -83,7 +77,6 @@ input[type="text"][readOnly] {
   flex-grow: 1;
 }
 
-/* --- Style đồng bộ cho các nút --- */
 button {
   padding: 0.8rem 1.5rem;
   border: none;
@@ -103,7 +96,6 @@ button:active:not(:disabled) {
   transform: translateY(1px);
 }
 
-/* --- Style cho các loại nút khác nhau --- */
 .path-container button {
   background-color: #555;
   color: var(--text-color);
@@ -127,7 +119,6 @@ button:active:not(:disabled) {
   background-color: var(--primary-hover-color);
 }
 
-/* --- Container cho các tùy chọn --- */
 .options-container {
   padding: 1.5rem;
   margin-top: 1rem;
@@ -156,7 +147,6 @@ button:active:not(:disabled) {
   cursor: pointer;
 }
 
-/* --- Khu vực Log --- */
 .log-area {
   margin-top: 2rem;
   background-color: var(--bg-color);
@@ -164,13 +154,13 @@ button:active:not(:disabled) {
   border: 1px solid var(--border-color);
   padding: 1rem;
   transition: max-height 0.4s ease-in-out;
-  max-height: 200px; /* Chiều cao mặc định */
+  max-height: 200px; 
   display: flex;
   flex-direction: column;
 }
 
 .log-area.expanded {
-  max-height: 60vh; /* Chiều cao khi mở rộng */
+  max-height: 60vh; 
 }
 
 .log-header {
@@ -206,11 +196,10 @@ button:active:not(:disabled) {
   font-family: 'Consolas', 'Courier New', monospace;
   font-size: 0.9rem;
   line-height: 1.5;
-  overflow-y: auto; /* Cho phép cuộn */
+  overflow-y: auto;
   flex-grow: 1;
 }
 
-/* --- Style cho thanh cuộn --- */
 .log-area pre::-webkit-scrollbar {
   width: 8px;
 }
