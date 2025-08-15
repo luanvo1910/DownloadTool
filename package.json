@@ -1,0 +1,53 @@
+{
+  "name": "simple-downloader",
+  "version": "1.0.0",
+  "description": "Ứng dụng tải video, audio và thumbnail",
+  "main": "main.js",
+  "scripts": {
+    "start": "concurrently \"npm run dev --prefix renderer\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "npm run build --prefix renderer && electron-builder",
+    "postinstall": "npm install --prefix renderer"
+  },
+  "keywords": [],
+  "author": "LuanVo",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^31.0.2",
+    "electron-builder": "^24.13.3",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.luanvo.downloader",
+    "productName": "Redbi Video Downloader",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "./resources",
+        "to": "./resources",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "./",
+        "to": "./",
+        "filter": [
+          "downloader.exe"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
