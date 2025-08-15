@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
 
+  selectCookieFile: () => ipcRenderer.invoke('dialog:selectCookieFile'),
+
   startDownload: (args) => ipcRenderer.send('download:start', args),
 
   onDownloadLog: (callback) => {

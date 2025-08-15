@@ -9,14 +9,9 @@ if sys.stdout.encoding != 'utf-8':
 if sys.stderr.encoding != 'utf-8':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-
 def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_playlist):
-    """
-    Tải video dựa trên các tùy chọn được truyền vào.
-    """
     print(f"STATUS: Bắt đầu xử lý URL: {url}")
     print(f"STATUS: Sẽ lưu file vào: {save_path}")
-    print(f"STATUS: Sử dụng resources từ: {resources_path}")
 
     yt_dlp_exe = os.path.join(resources_path, 'yt-dlp.exe')
     ffmpeg_exe = os.path.join(resources_path, 'ffmpeg.exe')
@@ -24,12 +19,11 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     aria2c_conf = os.path.join(resources_path, 'aria2c.conf')
 
     if not all(os.path.exists(p) for p in [yt_dlp_exe, ffmpeg_exe, aria2c_exe, aria2c_conf]):
-        print(f"ERROR: Thiếu file thực thi hoặc file cấu hình (yt-dlp, ffmpeg, aria2c, aria2c.conf) trong thư mục resources.")
+        print(f"ERROR: Thiếu file thực thi hoặc file cấu hình trong thư mục resources.")
         return
 
     output_template = os.path.join(save_path, '%(title)s.%(ext)s')
     
-
     if quality == '1080p':
         format_selection = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
     elif quality == '720p':
@@ -42,6 +36,9 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
 
     command = [
         yt_dlp_exe,
+        '--quiet',
+        '--progress',
+        '--no-warnings',
         '-f', format_selection,
         '--merge-output-format', 'mp4',
         '-o', output_template,
@@ -58,8 +55,6 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     if cookies_path and os.path.exists(cookies_path):
         print(f"STATUS: Sử dụng file cookies từ: {cookies_path}")
         command.extend(['--cookies', cookies_path])
-    else:
-        print("STATUS: Không sử dụng file cookies.")
 
     command.append(url)
 
@@ -92,7 +87,6 @@ if __name__ == '__main__':
     parser.add_argument("--save-path", required=True)
     parser.add_argument("--resources-path", required=True)
     parser.add_argument("--cookies-path", required=False, default=None)
-    
     parser.add_argument("--quality", default='best', help="Chất lượng video: best, 1080p, 720p")
     parser.add_argument("--thumbnail", action='store_true', help="Cờ để tải thumbnail")
     parser.add_argument("--no-playlist", action='store_true', help="Cờ để bỏ qua playlist")

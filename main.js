@@ -31,10 +31,16 @@ ipcMain.handle('dialog:selectDirectory', async () => {
   return canceled ? null : filePaths[0];
 });
 
-ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail, ignorePlaylist }) => {
+ipcMain.handle('dialog:selectCookieFile', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [{ name: 'Text Files', extensions: ['txt'] }]
+  });
+  return canceled ? null : filePaths[0];
+});
 
+ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath }) => {
   const downloaderExe = path.join(resourcesPath, 'downloader.exe');
-
   const args = [
       '--url', url,
       '--save-path', savePath,
@@ -43,6 +49,10 @@ ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail
   ];
   if (downloadThumbnail) args.push('--thumbnail');
   if (ignorePlaylist) args.push('--no-playlist');
+  
+  if (cookiesPath) {
+    args.push('--cookies-path', cookiesPath);
+  }
 
   const process = spawn(downloaderExe, args);
   const sendLog = (data) => event.sender.send('download:log', data.toString());
@@ -52,7 +62,7 @@ ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'downloader') {
+  if (process.platform !== 'darwin') {
     app.quit();
   }
 });
@@ -65,6 +75,5 @@ app.on('activate', () => {
 
 app.whenReady().then(() => {
   resourcesPath = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'resources');
-  
   createWindow();
 });
