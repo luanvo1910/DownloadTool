@@ -38,7 +38,7 @@ ipcMain.handle('dialog:selectDirectory', async () => {
 // Xử lý khi người dùng nhấn nút tải
 ipcMain.on('download:start', (event, { url, savePath }) => {
   const resourcesPath = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'resources');
-  const downloaderExePath = path.join(resourcesPath, 'downloader.exe');
+  const downloaderExePath = path.join(__dirname, 'downloader.exe');
 
   // *** PHẦN SỬA LỖI ***
   // Thêm tùy chọn `env` để buộc Python sử dụng mã hóa UTF-8
