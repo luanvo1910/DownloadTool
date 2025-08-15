@@ -1,13 +1,226 @@
-body { font-family: sans-serif; background-color: #242424; color: #fff; }
-.container { max-width: 700px; margin: 2rem auto; padding: 2rem; background-color: #333; border-radius: 8px; }
-h1, h2 { text-align: center; }
-.input-group { margin-bottom: 1.5rem; }
-.input-group label { display: block; margin-bottom: 0.5rem; }
-input[type="text"] { width: 100%; padding: 0.8rem; border-radius: 4px; border: 1px solid #555; background-color: #444; color: #fff; box-sizing: border-box; }
-.path-container { display: flex; }
-.path-container input { flex-grow: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.path-container button { border-top-left-radius: 0; border-bottom-left-radius: 0; }
-button { padding: 0.8rem 1.2rem; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
-button:disabled { cursor: not-allowed; opacity: 0.6; }
-.download-btn { width: 100%; padding: 1rem; background-color: #1a73e8; color: white; font-size: 1.2rem; }
-.log-area { margin-top: 2rem; background-color: #202124; padding: 1rem; border-radius: 4px; height: 200px; overflow-y: scroll; white-space: pre-wrap; word-wrap: break-word; }
+/* --- Biến màu cho giao diện Tối --- */
+:root {
+  --bg-color: #1a1a1a;
+  --bg-secondary-color: #2c2c2c;
+  --text-color: #e0e0e0;
+  --primary-color: #4a90e2;
+  --primary-hover-color: #5aa1f2;
+  --border-color: #444;
+  --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* --- Style cơ bản --- */
+body {
+  margin: 0;
+  font-family: var(--font-family);
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* --- Container chính --- */
+.container {
+  margin: 50px;
+  padding: 2rem;
+  background-color: var(--bg-secondary-color);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+h1 {
+  text-align: center;
+  color: var(--primary-color);
+  margin-bottom: 2rem;
+  font-weight: 600;
+}
+
+/* --- Nhóm Input và Label --- */
+.input-group {
+  margin-bottom: 1.5rem;
+}
+
+.input-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #b0b0b0;
+}
+
+/* --- Style đồng bộ cho Input và Select --- */
+input[type="text"],
+select {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-color);
+  font-size: 1rem;
+  box-sizing: border-box;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+input[type="text"]:focus,
+select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.3);
+}
+
+input[type="text"][readOnly] {
+  background-color: #222;
+  cursor: not-allowed;
+}
+
+/* --- Container cho Input + Nút --- */
+.path-container {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.path-container input {
+  flex-grow: 1;
+}
+
+/* --- Style đồng bộ cho các nút --- */
+button {
+  padding: 0.8rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.3s, transform 0.1s;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* --- Style cho các loại nút khác nhau --- */
+.path-container button {
+  background-color: #555;
+  color: var(--text-color);
+  flex-shrink: 0;
+}
+
+.path-container button:hover:not(:disabled) {
+  background-color: #666;
+}
+
+.download-btn {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.2rem;
+  background-color: var(--primary-color);
+  color: white;
+  margin-top: 1rem;
+}
+
+.download-btn:hover:not(:disabled) {
+  background-color: var(--primary-hover-color);
+}
+
+/* --- Container cho các tùy chọn --- */
+.options-container {
+  padding: 1.5rem;
+  margin-top: 1rem;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: 1.2em;
+  height: 1.2em;
+  accent-color: var(--primary-color);
+}
+
+.checkbox-group label {
+  font-weight: normal;
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+/* --- Khu vực Log --- */
+.log-area {
+  margin-top: 2rem;
+  background-color: var(--bg-color);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  padding: 1rem;
+  transition: max-height 0.4s ease-in-out;
+  max-height: 200px; /* Chiều cao mặc định */
+  display: flex;
+  flex-direction: column;
+}
+
+.log-area.expanded {
+  max-height: 60vh; /* Chiều cao khi mở rộng */
+}
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  flex-shrink: 0;
+}
+
+.log-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.expand-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+}
+
+.expand-btn:hover:not(:disabled) {
+  background-color: var(--bg-secondary-color);
+  border-color: #555;
+}
+
+.log-area pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  overflow-y: auto; /* Cho phép cuộn */
+  flex-grow: 1;
+}
+
+/* --- Style cho thanh cuộn --- */
+.log-area pre::-webkit-scrollbar {
+  width: 8px;
+}
+
+.log-area pre::-webkit-scrollbar-track {
+  background: var(--bg-color);
+}
+
+.log-area pre::-webkit-scrollbar-thumb {
+  background-color: #555;
+  border-radius: 4px;
+  border: 2px solid var(--bg-color);
+}

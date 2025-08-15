@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import './App.css'; // Sẽ tạo file này sau
+import './App.css'; // Import file CSS
 
 function App() {
   const [url, setUrl] = useState('');
@@ -7,6 +7,14 @@ function App() {
   const [log, setLog] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
   const logEndRef = useRef(null);
+
+  // --- State cho các tùy chọn tải xuống ---
+  const [quality, setQuality] = useState('1080p');
+  const [downloadThumbnail, setDownloadThumbnail] = useState(true);
+  const [ignorePlaylist, setIgnorePlaylist] = useState(true);
+  
+  // --- State mới để quản lý việc mở rộng log ---
+  const [isLogExpanded, setIsLogExpanded] = useState(false);
 
   // Tự động cuộn log xuống dưới
   useEffect(() => {
@@ -16,20 +24,13 @@ function App() {
   // Lắng nghe log từ main process
   useEffect(() => {
     const removeListener = window.electronAPI.onDownloadLog((message) => {
-      setLog(prevLog => prevLog + message + '\n');
+      setLog(prevLog => prevLog + message);
       
       if (message.includes('--- Tiến trình kết thúc')) {
         setIsDownloading(false);
       }
-      if (message.includes('SUCCESS:')) {
-        alert('Tải video thành công!');
-      }
     });
-
-    // Cleanup khi component unmount
-    return () => {
-      removeListener();
-    };
+    return () => removeListener();
   }, []);
 
   const handleSelectDirectory = async () => {
@@ -40,22 +41,25 @@ function App() {
   };
 
   const handleDownload = () => {
-    if (!url) {
-      alert('Vui lòng nhập link video.');
-      return;
-    }
-    if (!savePath) {
-      alert('Vui lòng chọn nơi lưu file.');
+    if (!url || !savePath) {
+      alert('Vui lòng nhập link video và chọn nơi lưu file.');
       return;
     }
     setLog('Bắt đầu quá trình tải...\n');
     setIsDownloading(true);
-    window.electronAPI.startDownload({ url, savePath });
+    
+    window.electronAPI.startDownload({
+      url,
+      savePath,
+      quality,
+      downloadThumbnail,
+      ignorePlaylist
+    });
   };
 
   return (
     <div className="container">
-      <h1>Video Downloader</h1>
+      <h1>Simple Video Downloader</h1>
       
       <div className="input-group">
         <label htmlFor="url-input">Link Video:</label>
@@ -85,12 +89,50 @@ function App() {
         </div>
       </div>
 
+      <div className="options-container">
+        <div className="input-group">
+          <label htmlFor="quality-select">Chất lượng:</label>
+          <select id="quality-select" value={quality} onChange={(e) => setQuality(e.target.value)} disabled={isDownloading}>
+            <option value="best">Tốt nhất (4K, 2K...)</option>
+            <option value="1080p">Tối đa 1080p</option>
+            <option value="720p">Tối đa 720p</option>
+          </select>
+        </div>
+
+        <div className="checkbox-group">
+          <input
+            type="checkbox"
+            id="thumbnail-checkbox"
+            checked={downloadThumbnail}
+            onChange={(e) => setDownloadThumbnail(e.target.checked)}
+            disabled={isDownloading}
+          />
+          <label htmlFor="thumbnail-checkbox">Tải cả ảnh bìa (Thumbnail)</label>
+        </div>
+
+        <div className="checkbox-group">
+          <input
+            type="checkbox"
+            id="playlist-checkbox"
+            checked={ignorePlaylist}
+            onChange={(e) => setIgnorePlaylist(e.target.checked)}
+            disabled={isDownloading}
+          />
+          <label htmlFor="playlist-checkbox">Chỉ tải 1 video (bỏ qua playlist)</label>
+        </div>
+      </div>
+
       <button className="download-btn" onClick={handleDownload} disabled={isDownloading}>
         {isDownloading ? 'ĐANG TẢI...' : 'BẮT ĐẦU TẢI'}
       </button>
 
-      <div className="log-area">
-        <h2>Nhật ký xử lý:</h2>
+      <div className={`log-area ${isLogExpanded ? 'expanded' : ''}`}>
+        <div className="log-header">
+          <h2>Nhật ký xử lý:</h2>
+          <button className="expand-btn" onClick={() => setIsLogExpanded(!isLogExpanded)}>
+            {isLogExpanded ? 'Thu gọn' : 'Mở rộng'}
+          </button>
+        </div>
         <pre>{log}</pre>
         <div ref={logEndRef} />
       </div>

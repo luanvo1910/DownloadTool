@@ -14,40 +14,43 @@ if sys.stderr.encoding != 'utf-8':
 # =================================================================
 
 
-def main(url, save_path, resources_path, cookies_path):
+def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_playlist):
     """
-    Tải video sử dụng yt-dlp và trình tải ngoài aria2c với file cấu hình.
+    Tải video dựa trên các tùy chọn được truyền vào.
     """
     print(f"STATUS: Bắt đầu xử lý URL: {url}")
     print(f"STATUS: Sẽ lưu file vào: {save_path}")
     print(f"STATUS: Sử dụng resources từ: {resources_path}")
 
-    # --- Xác định đường dẫn đến các file thực thi ---
+    # --- Xác định đường dẫn đến các file thực thi và cấu hình ---
     yt_dlp_exe = os.path.join(resources_path, 'yt-dlp.exe')
     ffmpeg_exe = os.path.join(resources_path, 'ffmpeg.exe')
     aria2c_exe = os.path.join(resources_path, 'aria2c.exe')
-    aria2c_conf = os.path.join(resources_path, 'aria2c.conf') # Đường dẫn đến file config
+    aria2c_conf = os.path.join(resources_path, 'aria2c.conf')
 
     # Kiểm tra sự tồn tại của các file cần thiết
     if not all(os.path.exists(p) for p in [yt_dlp_exe, ffmpeg_exe, aria2c_exe, aria2c_conf]):
         print(f"ERROR: Thiếu file thực thi hoặc file cấu hình (yt-dlp, ffmpeg, aria2c, aria2c.conf) trong thư mục resources.")
         return
 
-    # --- Cấu hình các tham số ---
+    # --- Cấu hình các tham số một cách linh hoạt ---
     output_template = os.path.join(save_path, '%(title)s.%(ext)s')
-    format_selection = 'bestvideo+bestaudio/best' # Lấy chất lượng tốt nhất
     
-    # ==============================================================================
-    # SỬA LỖI Ở ĐÂY: Dùng file cấu hình, chỉ truyền 2 tham số đơn giản
-    # ==============================================================================
+    # Dựa vào tham số quality để chọn format
+    if quality == '1080p':
+        format_selection = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
+    elif quality == '720p':
+        format_selection = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
+    else: # Mặc định là 'best'
+        format_selection = 'bestvideo+bestaudio/best'
+
+    # Tham số cho aria2c, sử dụng file cấu hình
     safe_save_path = os.path.abspath(save_path).replace('\\', '/')
     downloader_args_str = f'aria2c:--conf-path={aria2c_conf},--dir={safe_save_path}'
 
     # --- Xây dựng lệnh command cuối cùng ---
     command = [
         yt_dlp_exe,
-        '--no-playlist',
-        '--write-thumbnail',
         '-f', format_selection,
         '--merge-output-format', 'mp4',
         '-o', output_template,
@@ -55,6 +58,12 @@ def main(url, save_path, resources_path, cookies_path):
         '--downloader', aria2c_exe,
         '--downloader-args', downloader_args_str,
     ]
+
+    # Thêm các cờ boolean vào đầu lệnh để ưu tiên
+    if no_playlist:
+        command.insert(1, '--no-playlist')
+    if thumbnail:
+        command.insert(1, '--write-thumbnail')
 
     if cookies_path and os.path.exists(cookies_path):
         print(f"STATUS: Sử dụng file cookies từ: {cookies_path}")
@@ -89,16 +98,22 @@ def main(url, save_path, resources_path, cookies_path):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Tải và ghép video từ URL sử dụng yt-dlp và aria2c.")
-    parser.add_argument("--url", required=True, help="URL của video.")
-    parser.add_argument("--save-path", required=True, help="Thư mục để lưu file.")
-    parser.add_argument("--resources-path", required=True, help="Đường dẫn đến thư mục chứa các file .exe.")
-    parser.add_argument("--cookies-path", required=False, default=None, help="(Tùy chọn) Đường dẫn đến file cookies.txt.")
+    parser = argparse.ArgumentParser(description="Tải video từ URL với các tùy chọn.")
+    parser.add_argument("--url", required=True)
+    parser.add_argument("--save-path", required=True)
+    parser.add_argument("--resources-path", required=True)
+    parser.add_argument("--cookies-path", required=False, default=None)
+    
+    # Thêm các đối số mới
+    parser.add_argument("--quality", default='best', help="Chất lượng video: best, 1080p, 720p")
+    parser.add_argument("--thumbnail", action='store_true', help="Cờ để tải thumbnail")
+    parser.add_argument("--no-playlist", action='store_true', help="Cờ để bỏ qua playlist")
 
     args = parser.parse_args()
 
     try:
-        main(args.url, args.save_path, args.resources_path, args.cookies_path)
+        main(args.url, args.save_path, args.resources_path, args.cookies_path,
+             args.quality, args.thumbnail, args.no_playlist)
     except Exception as e:
         print(f"FATAL_ERROR: {e}", file=sys.stderr, flush=True)
         sys.exit(1)
