@@ -1,25 +1,26 @@
 {
   "name": "simple-downloader",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Ứng dụng tải video, audio và thumbnail",
   "main": "main.js",
+  "author": "LuanVo",
+  "repository": "https://github.com/luanvo1910/DownloadTool",
   "scripts": {
     "start": "concurrently \"npm run dev --prefix renderer\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "npm run build --prefix renderer && electron-builder",
-    "postinstall": "npm install --prefix renderer"
+    "postinstall": "npm install --prefix renderer",
+    "publish": "npm run build --prefix renderer && electron-builder --publish always"
   },
-  "keywords": [],
-  "author": "LuanVo",
-  "license": "ISC",
   "devDependencies": {
     "concurrently": "^8.2.2",
     "electron": "^31.0.2",
     "electron-builder": "^24.13.3",
+    "electron-updater": "^6.6.2",
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.luanvo.downloader",
-    "productName": "Redbi Video Downloader",
+    "appId": "com.luanvo.simpledownloader",
+    "productName": "Simple Video Downloader",
     "files": [
       "main.js",
       "preload.js",
@@ -28,8 +29,10 @@
     "extraResources": [
       {
         "from": "./resources",
-        "to": ".",
-        "filter": ["**/*"]
+        "to": "resources",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
@@ -39,6 +42,11 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "luanvo1910",
+      "repo": "DownloadTool"
     }
   }
 }
