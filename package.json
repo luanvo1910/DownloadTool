@@ -15,12 +15,11 @@
     "concurrently": "^8.2.2",
     "electron": "^31.0.2",
     "electron-builder": "^24.13.3",
-    "electron-updater": "^6.6.2",
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.luanvo.simpledownloader",
-    "productName": "Simple Video Downloader",
+    "appId": "com.luanvo.redbidownloader",
+    "productName": "Redbi Video Downloader",
     "files": [
       "main.js",
       "preload.js",
@@ -29,10 +28,8 @@
     "extraResources": [
       {
         "from": "./resources",
-        "to": "resources",
-        "filter": [
-          "**/*"
-        ]
+        "to": ".",
+        "filter": ["**/*"]
       }
     ],
     "win": {
@@ -48,5 +45,8 @@
       "owner": "luanvo1910",
       "repo": "DownloadTool"
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
   }
 }

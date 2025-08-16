@@ -14,7 +14,6 @@ const CookieModal = ({ onAddCookieFile, onCancel, message }) => (
   </div>
 );
 
-// --- Component Modal Log Toàn màn hình ---
 const LogModal = ({ fullLog, onClose }) => (
   <div className="modal-backdrop log-modal-backdrop">
     <div className="modal-content log-modal-content">
@@ -41,8 +40,6 @@ function App() {
   const [cookiesPath, setCookiesPath] = useState(null);
   const [showCookieModal, setShowCookieModal] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
-
-  // --- State mới cho Log Modal ---
   const [showLogModal, setShowLogModal] = useState(false);
 
   useEffect(() => {
@@ -96,12 +93,11 @@ function App() {
       setShowCookieModal(false);
       
       setTimeout(() => {
-        const currentUrl = document.getElementById('url-input').value;
-        if (currentUrl && savePath) {
+        if (url && savePath) {
           setLog('Đã thêm cookies. Thử lại quá trình tải...\n');
           setIsDownloading(true);
           window.electronAPI.startDownload({
-            url: currentUrl, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath: path
+            url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath: path
           });
         }
       }, 100);

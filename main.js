@@ -6,10 +6,6 @@ const { autoUpdater } = require('electron-updater');
 let mainWindow;
 let resourcesPath;
 
-let downloadQueue = [];
-let activeDownloads = 0;
-const MAX_CONCURRENT_DOWNLOADS = 3;
-
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -30,48 +26,6 @@ function createWindow() {
   }
 }
 
-function updateQueueStatus() {
-  if (mainWindow) {
-    mainWindow.webContents.send('queue:update', downloadQueue);
-  }
-}
-
-function processQueue() {
-  if (activeDownloads >= MAX_CONCURRENT_DOWNLOADS) {
-    return;
-  }
-
-  const nextJob = downloadQueue.find(job => job.status === 'Pending');
-  if (!nextJob) {
-    return;
-  }
-
-  activeDownloads++;
-  nextJob.status = 'Downloading';
-  updateQueueStatus();
-
-  const { url, options } = nextJob;
-  const downloaderExe = path.join(resourcesPath, 'downloader.exe');
-  const args = [
-      '--url', url,
-      '--save-path', options.savePath,
-      '--resources-path', resourcesPath,
-      '--quality', options.quality
-  ];
-  if (options.downloadThumbnail) args.push('--thumbnail');
-  if (options.ignorePlaylist) args.push('--no-playlist');
-  if (options.cookiesPath) args.push('--cookies-path', options.cookiesPath);
-
-  const process = spawn(downloaderExe, args);
-
-  process.on('close', (code) => {
-    activeDownloads--;
-    nextJob.status = code === 0 ? 'Completed' : 'Failed';
-    updateQueueStatus();
-    processQueue();
-  });
-}
-
 ipcMain.handle('dialog:selectDirectory', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openDirectory']
@@ -87,18 +41,23 @@ ipcMain.handle('dialog:selectCookieFile', async () => {
     return canceled ? null : filePaths[0];
 });
 
-ipcMain.on('download:start', (event, { urls, ...options }) => {
-  downloadQueue = urls.map(url => ({
-    url,
-    status: 'Pending',
-    options
-  }));
-  
-  updateQueueStatus();
-  
-  for (let i = 0; i < MAX_CONCURRENT_DOWNLOADS; i++) {
-    processQueue();
-  }
+ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath }) => {
+  const downloaderExe = path.join(resourcesPath, 'downloader.exe');
+  const args = [
+      '--url', url,
+      '--save-path', savePath,
+      '--resources-path', resourcesPath,
+      '--quality', quality
+  ];
+  if (downloadThumbnail) args.push('--thumbnail');
+  if (ignorePlaylist) args.push('--no-playlist');
+  if (cookiesPath) args.push('--cookies-path', cookiesPath);
+
+  const process = spawn(downloaderExe, args);
+  const sendLog = (data) => event.sender.send('download:log', data.toString());
+  process.stdout.on('data', sendLog);
+  process.stderr.on('data', sendLog);
+  process.on('close', (code) => sendLog(`\n--- Tiến trình kết thúc với mã ${code} ---\n`));
 });
 
 app.on('window-all-closed', () => {
