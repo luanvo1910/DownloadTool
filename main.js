@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
@@ -26,28 +26,14 @@ function createWindow() {
   }
 }
 
-ipcMain.handle('dialog:selectDirectory', async () => {
-  const { canceled, filePaths } = await dialog.showOpenDialog({
-    properties: ['openDirectory']
-  });
-  return canceled ? null : filePaths[0];
-});
-
-ipcMain.handle('dialog:selectCookieFile', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      properties: ['openFile'],
-      filters: [{ name: 'Text Files', extensions: ['txt'] }]
-    });
-    return canceled ? null : filePaths[0];
-});
-
+// IPC tải video
 ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath }) => {
   const downloaderExe = path.join(resourcesPath, 'downloader.exe');
   const args = [
-      '--url', url,
-      '--save-path', savePath,
-      '--resources-path', resourcesPath,
-      '--quality', quality
+    '--url', url,
+    '--save-path', savePath,
+    '--resources-path', resourcesPath,
+    '--quality', quality
   ];
   if (downloadThumbnail) args.push('--thumbnail');
   if (ignorePlaylist) args.push('--no-playlist');
@@ -55,9 +41,21 @@ ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail
 
   const process = spawn(downloaderExe, args);
   const sendLog = (data) => event.sender.send('download:log', data.toString());
+
   process.stdout.on('data', sendLog);
   process.stderr.on('data', sendLog);
-  process.on('close', (code) => sendLog(`\n--- Tiến trình kết thúc với mã ${code} ---\n`));
+
+  process.on('close', (code) => {
+    sendLog(`\n--- Tiến trình kết thúc với mã ${code} ---\n`);
+    if (code === 0) {
+      mainWindow.webContents.send('download_finished');
+    }
+  });
+});
+
+// IPC cho update
+ipcMain.on('quit_and_install', () => {
+  autoUpdater.quitAndInstall();
 });
 
 app.on('window-all-closed', () => {
@@ -79,19 +77,11 @@ app.whenReady().then(() => {
   autoUpdater.checkForUpdatesAndNotify();
 });
 
+// Các event update
 autoUpdater.on('update-available', () => {
   mainWindow.webContents.send('update_available');
 });
 
 autoUpdater.on('update-downloaded', () => {
-  dialog.showMessageBox({
-    type: 'info',
-    title: 'Cập nhật đã sẵn sàng',
-    message: 'Một phiên bản mới đã được tải về. Khởi động lại ứng dụng để cài đặt?',
-    buttons: ['Khởi động lại', 'Để sau']
-  }).then(result => {
-    if (result.response === 0) {
-      autoUpdater.quitAndInstall();
-    }
-  });
+  mainWindow.webContents.send('update_downloaded');
 });

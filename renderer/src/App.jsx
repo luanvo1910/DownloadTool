@@ -26,6 +26,23 @@ const LogModal = ({ fullLog, onClose }) => (
   </div>
 );
 
+// 🆕 Modal chung cho thông báo
+const NotifyModal = ({ title, message, actions }) => (
+  <div className="modal-backdrop">
+    <div className="modal-content">
+      <h2>{title}</h2>
+      <p>{message}</p>
+      <div className="modal-actions">
+        {actions.map((a, i) => (
+          <button key={i} onClick={a.onClick} className={a.primary ? 'btn-primary' : 'btn-secondary'}>
+            {a.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  </div>
+);
+
 function App() {
   const [url, setUrl] = useState('');
   const [savePath, setSavePath] = useState('');
@@ -41,6 +58,9 @@ function App() {
   const [showCookieModal, setShowCookieModal] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
   const [showLogModal, setShowLogModal] = useState(false);
+
+  // 🆕 thông báo update/download
+  const [notify, setNotify] = useState(null);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -66,6 +86,45 @@ function App() {
       }
     });
     return () => removeListener();
+  }, []);
+
+  // 🆕 khi tải video xong
+  useEffect(() => {
+    const removeFinished = window.electronAPI.onDownloadFinished(() => {
+      setNotify({
+        title: "Tải xong",
+        message: "Video đã được tải thành công!",
+        actions: [{ label: "OK", onClick: () => setNotify(null), primary: true }]
+      });
+    });
+    return () => removeFinished();
+  }, []);
+
+  // 🆕 update
+  useEffect(() => {
+    const removeAvailable = window.electronAPI.onUpdateAvailable(() => {
+      setNotify({
+        title: "Có bản cập nhật mới",
+        message: "Ứng dụng sẽ tải bản cập nhật trong nền.",
+        actions: [{ label: "OK", onClick: () => setNotify(null), primary: true }]
+      });
+    });
+
+    const removeDownloaded = window.electronAPI.onUpdateDownloaded(() => {
+      setNotify({
+        title: "Cập nhật sẵn sàng",
+        message: "Bản cập nhật đã tải xong. Bạn có muốn khởi động lại để cài đặt?",
+        actions: [
+          { label: "Để sau", onClick: () => setNotify(null) },
+          { label: "Khởi động lại", onClick: () => { window.electronAPI.quitAndInstall(); }, primary: true }
+        ]
+      });
+    });
+
+    return () => {
+      removeAvailable();
+      removeDownloaded();
+    };
   }, []);
 
   const handleSelectDirectory = async () => {
@@ -106,8 +165,9 @@ function App() {
 
   return (
     <div className="container">
-      {showCookieModal && <CookieModal onAddCookieFile={handleAddCookieFile} onCancel={() => setShowCookieModal(false)} message={modalMessage}/>}
-      {showLogModal && <LogModal fullLog={log} onClose={() => setShowLogModal(false)} />}
+      {showCookieModal && <CookieModal onAddCookieFile={handleAddCookieFile} onCancel={() => setShowCookieModal(false)} message={modalMessage}/> }
+      {showLogModal && <LogModal fullLog={log} onClose={() => setShowLogModal(false)} /> }
+      {notify && <NotifyModal title={notify.title} message={notify.message} actions={notify.actions}/> }
 
       <h1>Simple Video Downloader</h1>
       
