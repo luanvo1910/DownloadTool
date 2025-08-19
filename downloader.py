@@ -31,8 +31,9 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     else:
         format_selection = 'bestvideo+bestaudio/best'
 
+    # SỬA LỖI Ở ĐÂY: Thêm dấu ngoặc kép (") xung quanh các đường dẫn
     safe_save_path = os.path.abspath(save_path).replace('\\', '/')
-    downloader_args_str = f'aria2c:--conf-path={aria2c_conf},--dir={safe_save_path}'
+    downloader_args_str = f'aria2c:--conf-path="{aria2c_conf}",--dir="{safe_save_path}"'
 
     command = [
         yt_dlp_exe,

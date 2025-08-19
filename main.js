@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
@@ -26,14 +26,28 @@ function createWindow() {
   }
 }
 
-// IPC tải video
+ipcMain.handle('dialog:selectDirectory', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openDirectory']
+  });
+  return canceled ? null : filePaths[0];
+});
+
+ipcMain.handle('dialog:selectCookieFile', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Text Files', extensions: ['txt'] }]
+    });
+    return canceled ? null : filePaths[0];
+});
+
 ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath }) => {
   const downloaderExe = path.join(resourcesPath, 'downloader.exe');
   const args = [
-    '--url', url,
-    '--save-path', savePath,
-    '--resources-path', resourcesPath,
-    '--quality', quality
+      '--url', url,
+      '--save-path', savePath,
+      '--resources-path', resourcesPath,
+      '--quality', quality
   ];
   if (downloadThumbnail) args.push('--thumbnail');
   if (ignorePlaylist) args.push('--no-playlist');
@@ -41,7 +55,7 @@ ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail
 
   const process = spawn(downloaderExe, args);
   const sendLog = (data) => event.sender.send('download:log', data.toString());
-
+  
   process.stdout.on('data', sendLog);
   process.stderr.on('data', sendLog);
 
@@ -53,7 +67,6 @@ ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail
   });
 });
 
-// IPC cho update
 ipcMain.on('quit_and_install', () => {
   autoUpdater.quitAndInstall();
 });
@@ -77,7 +90,6 @@ app.whenReady().then(() => {
   autoUpdater.checkForUpdatesAndNotify();
 });
 
-// Các event update
 autoUpdater.on('update-available', () => {
   mainWindow.webContents.send('update_available');
 });

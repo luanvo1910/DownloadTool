@@ -26,7 +26,6 @@ const LogModal = ({ fullLog, onClose }) => (
   </div>
 );
 
-// 🆕 Modal chung cho thông báo
 const NotifyModal = ({ title, message, actions }) => (
   <div className="modal-backdrop">
     <div className="modal-content">
@@ -55,11 +54,10 @@ function App() {
   const [ignorePlaylist, setIgnorePlaylist] = useState(true);
   
   const [cookiesPath, setCookiesPath] = useState(null);
+  const [cookieFileName, setCookieFileName] = useState('');
   const [showCookieModal, setShowCookieModal] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
   const [showLogModal, setShowLogModal] = useState(false);
-
-  // 🆕 thông báo update/download
   const [notify, setNotify] = useState(null);
 
   useEffect(() => {
@@ -67,16 +65,15 @@ function App() {
   }, [log]);
 
   useEffect(() => {
-    const removeListener = window.electronAPI.onDownloadLog((message) => {
+    const removeLogListener = window.electronAPI.onDownloadLog((message) => {
       setLog(prevLog => prevLog + message);
       
       const lowerCaseMessage = message.toLowerCase();
-      if (lowerCaseMessage.includes('login to confirm your age') || lowerCaseMessage.includes('sign in to confirm your age')) {
-        setModalMessage('Video này bị giới hạn độ tuổi. Vui lòng cung cấp file cookies.txt đã đăng nhập YouTube để tiếp tục.');
-        setIsDownloading(false);
-        setShowCookieModal(true);
-      } else if (lowerCaseMessage.includes('this video is available to members only')) {
-        setModalMessage('Video này chỉ dành cho hội viên. Vui lòng cung cấp file cookies.txt của tài khoản hội viên để tiếp tục.');
+      if (lowerCaseMessage.includes('login to confirm your age') || 
+          lowerCaseMessage.includes('sign in to confirm your age') ||
+          lowerCaseMessage.includes('this video is available to members only') ||
+          (lowerCaseMessage.includes('http error 403') && lowerCaseMessage.includes('forbidden'))) {
+        setModalMessage('Video này có thể yêu cầu đăng nhập. Vui lòng cung cấp file cookies.txt để tiếp tục.');
         setIsDownloading(false);
         setShowCookieModal(true);
       }
@@ -85,32 +82,24 @@ function App() {
         setIsDownloading(false);
       }
     });
-    return () => removeListener();
-  }, []);
 
-  // 🆕 khi tải video xong
-  useEffect(() => {
-    const removeFinished = window.electronAPI.onDownloadFinished(() => {
+    const removeFinishedListener = window.electronAPI.onDownloadFinished(() => {
       setNotify({
         title: "Tải xong",
         message: "Video đã được tải thành công!",
         actions: [{ label: "OK", onClick: () => setNotify(null), primary: true }]
       });
     });
-    return () => removeFinished();
-  }, []);
 
-  // 🆕 update
-  useEffect(() => {
-    const removeAvailable = window.electronAPI.onUpdateAvailable(() => {
+    const removeUpdateAvailableListener = window.electronAPI.onUpdateAvailable(() => {
       setNotify({
         title: "Có bản cập nhật mới",
-        message: "Ứng dụng sẽ tải bản cập nhật trong nền.",
+        message: "Ứng dụng sẽ tự động tải bản cập nhật trong nền.",
         actions: [{ label: "OK", onClick: () => setNotify(null), primary: true }]
       });
     });
 
-    const removeDownloaded = window.electronAPI.onUpdateDownloaded(() => {
+    const removeUpdateDownloadedListener = window.electronAPI.onUpdateDownloaded(() => {
       setNotify({
         title: "Cập nhật sẵn sàng",
         message: "Bản cập nhật đã tải xong. Bạn có muốn khởi động lại để cài đặt?",
@@ -122,8 +111,10 @@ function App() {
     });
 
     return () => {
-      removeAvailable();
-      removeDownloaded();
+      removeLogListener();
+      removeFinishedListener();
+      removeUpdateAvailableListener();
+      removeUpdateDownloadedListener();
     };
   }, []);
 
@@ -145,35 +136,38 @@ function App() {
     });
   };
 
-  const handleAddCookieFile = async () => {
+  const handleAddCookieFile = async (isRetry = false) => {
     const path = await window.electronAPI.selectCookieFile();
     if (path) {
       setCookiesPath(path);
+      setCookieFileName(path.split('\\').pop().split('/').pop());
       setShowCookieModal(false);
       
-      setTimeout(() => {
-        if (url && savePath) {
-          setLog('Đã thêm cookies. Thử lại quá trình tải...\n');
-          setIsDownloading(true);
-          window.electronAPI.startDownload({
-            url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath: path
-          });
-        }
-      }, 100);
+      if (isRetry) {
+        setTimeout(() => {
+          if (url && savePath) {
+            setLog('Đã thêm cookies. Thử lại quá trình tải...\n');
+            setIsDownloading(true);
+            window.electronAPI.startDownload({
+              url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath: path
+            });
+          }
+        }, 100);
+      }
     }
   };
 
   return (
     <div className="container">
-      {showCookieModal && <CookieModal onAddCookieFile={handleAddCookieFile} onCancel={() => setShowCookieModal(false)} message={modalMessage}/> }
-      {showLogModal && <LogModal fullLog={log} onClose={() => setShowLogModal(false)} /> }
-      {notify && <NotifyModal title={notify.title} message={notify.message} actions={notify.actions}/> }
+      {showCookieModal && <CookieModal onAddCookieFile={() => handleAddCookieFile(true)} onCancel={() => setShowCookieModal(false)} message={modalMessage}/>}
+      {showLogModal && <LogModal fullLog={log} onClose={() => setShowLogModal(false)} />}
+      {notify && <NotifyModal title={notify.title} message={notify.message} actions={notify.actions}/>}
 
-      <h1>Simple Video Downloader</h1>
+      <h1>Redbi Video Downloader</h1>
       
       <div className="input-group">
         <label htmlFor="url-input">Link Video:</label>
-        <input id="url-input" type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Dán link YouTube, Facebook, TikTok..." disabled={isDownloading}/>
+        <input id="url-input" type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Dán link hoặc dùng extension trên trình duyệt" disabled={isDownloading}/>
       </div>
       <div className="input-group">
         <label htmlFor="save-path-input">Lưu vào:</label>
@@ -198,6 +192,11 @@ function App() {
         <div className="checkbox-group">
           <input type="checkbox" id="playlist-checkbox" checked={ignorePlaylist} onChange={(e) => setIgnorePlaylist(e.target.checked)} disabled={isDownloading}/>
           <label htmlFor="playlist-checkbox">Chỉ tải 1 video (bỏ qua playlist)</label>
+        </div>
+        <div className="cookie-group">
+            <button onClick={() => handleAddCookieFile(false)} className="btn-secondary">
+                {cookieFileName ? `Đang dùng: ${cookieFileName}` : 'Thêm Cookies (Tùy chọn)'}
+            </button>
         </div>
       </div>
       <button className="download-btn" onClick={handleDownload} disabled={isDownloading}>{isDownloading ? 'ĐANG TẢI...' : 'BẮT ĐẦU TẢI'}</button>
