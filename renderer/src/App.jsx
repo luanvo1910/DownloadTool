@@ -52,6 +52,7 @@ function App() {
   const [quality, setQuality] = useState('1080p');
   const [downloadThumbnail, setDownloadThumbnail] = useState(true);
   const [ignorePlaylist, setIgnorePlaylist] = useState(true);
+  const [downloadFormat, setDownloadFormat] = useState('video'); // State mới: 'video' hoặc 'mp3'
   
   const [cookiesPath, setCookiesPath] = useState(null);
   const [cookieFileName, setCookieFileName] = useState('');
@@ -86,7 +87,7 @@ function App() {
     const removeFinishedListener = window.electronAPI.onDownloadFinished(() => {
       setNotify({
         title: "Tải xong",
-        message: "Video đã được tải thành công!",
+        message: "File đã được tải thành công!",
         actions: [{ label: "OK", onClick: () => setNotify(null), primary: true }]
       });
     });
@@ -132,7 +133,7 @@ function App() {
     setIsDownloading(true);
     
     window.electronAPI.startDownload({
-      url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath
+      url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath, downloadFormat
     });
   };
 
@@ -149,7 +150,7 @@ function App() {
             setLog('Đã thêm cookies. Thử lại quá trình tải...\n');
             setIsDownloading(true);
             window.electronAPI.startDownload({
-              url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath: path
+              url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath: path, downloadFormat
             });
           }
         }, 100);
@@ -178,13 +179,24 @@ function App() {
       </div>
       <div className="options-container">
         <div className="input-group">
-          <label htmlFor="quality-select">Chất lượng:</label>
-          <select id="quality-select" value={quality} onChange={(e) => setQuality(e.target.value)} disabled={isDownloading}>
-            <option value="best">Tốt nhất (4K, 2K...)</option>
-            <option value="1080p">Tối đa 1080p</option>
-            <option value="720p">Tối đa 720p</option>
+          <label htmlFor="format-select">Định dạng:</label>
+          <select id="format-select" value={downloadFormat} onChange={(e) => setDownloadFormat(e.target.value)} disabled={isDownloading}>
+            <option value="video">Video (MP4)</option>
+            <option value="mp3">Chỉ Âm thanh (MP3)</option>
           </select>
         </div>
+
+        {downloadFormat === 'video' && (
+          <div className="input-group">
+            <label htmlFor="quality-select">Chất lượng Video:</label>
+            <select id="quality-select" value={quality} onChange={(e) => setQuality(e.target.value)} disabled={isDownloading}>
+              <option value="best">Tốt nhất (4K, 2K...)</option>
+              <option value="1080p">Tối đa 1080p</option>
+              <option value="720p">Tối đa 720p</option>
+            </select>
+          </div>
+        )}
+
         <div className="checkbox-group">
           <input type="checkbox" id="thumbnail-checkbox" checked={downloadThumbnail} onChange={(e) => setDownloadThumbnail(e.target.checked)} disabled={isDownloading}/>
           <label htmlFor="thumbnail-checkbox">Tải cả ảnh bìa (Thumbnail)</label>

@@ -9,7 +9,7 @@ if sys.stdout.encoding != 'utf-8':
 if sys.stderr.encoding != 'utf-8':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_playlist):
+def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_playlist, download_format):
     print(f"STATUS: Bắt đầu xử lý URL: {url}")
     print(f"STATUS: Sẽ lưu file vào: {save_path}")
 
@@ -24,29 +24,41 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
 
     output_template = os.path.join(save_path, '%(title)s.%(ext)s')
     
-    if quality == '1080p':
-        format_selection = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
-    elif quality == '720p':
-        format_selection = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
-    else:
-        format_selection = 'bestvideo+bestaudio/best'
+    command = [ yt_dlp_exe ]
 
-    # SỬA LỖI Ở ĐÂY: Thêm dấu ngoặc kép (") xung quanh các đường dẫn
-    safe_save_path = os.path.abspath(save_path).replace('\\', '/')
-    downloader_args_str = f'aria2c:--conf-path="{aria2c_conf}",--dir="{safe_save_path}"'
+    # Logic xử lý định dạng
+    if download_format == 'mp3':
+        command.extend([
+            '-f', 'bestaudio',
+            '--extract-audio',
+            '--audio-format', 'mp3',
+            '--audio-quality', '0', # 0 là chất lượng tốt nhất
+            '-o', output_template,
+            '--ffmpeg-location', resources_path,
+        ])
+    else: # Mặc định là tải video
+        if quality == '1080p':
+            format_selection = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
+        elif quality == '720p':
+            format_selection = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
+        else:
+            format_selection = 'bestvideo+bestaudio/best'
 
-    command = [
-        yt_dlp_exe,
-        '--quiet',
-        '--progress',
-        '--no-warnings',
-        '-f', format_selection,
-        '--merge-output-format', 'mp4',
-        '-o', output_template,
-        '--ffmpeg-location', resources_path,
-        '--downloader', aria2c_exe,
-        '--downloader-args', downloader_args_str,
-    ]
+        safe_save_path = os.path.abspath(save_path).replace('\\', '/')
+        downloader_args_str = f'aria2c:--conf-path="{aria2c_conf}",--dir="{safe_save_path}"'
+        
+        command.extend([
+            '--quiet',
+            '--progress',
+            '--no-warnings',
+            '--no-call-home',
+            '-f', format_selection,
+            '--merge-output-format', 'mp4',
+            '-o', output_template,
+            '--ffmpeg-location', resources_path,
+            '--downloader', aria2c_exe,
+            '--downloader-args', downloader_args_str,
+        ])
 
     if no_playlist:
         command.insert(1, '--no-playlist')
@@ -77,7 +89,7 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     process.wait()
 
     if process.returncode == 0:
-        print("SUCCESS: Tải và xử lý video thành công!")
+        print("SUCCESS: Tải và xử lý file thành công!")
     else:
         print(f"ERROR: Quá trình thất bại với mã lỗi {process.returncode}.")
 
@@ -88,15 +100,16 @@ if __name__ == '__main__':
     parser.add_argument("--save-path", required=True)
     parser.add_argument("--resources-path", required=True)
     parser.add_argument("--cookies-path", required=False, default=None)
-    parser.add_argument("--quality", default='best', help="Chất lượng video: best, 1080p, 720p")
-    parser.add_argument("--thumbnail", action='store_true', help="Cờ để tải thumbnail")
-    parser.add_argument("--no-playlist", action='store_true', help="Cờ để bỏ qua playlist")
+    parser.add_argument("--quality", default='best')
+    parser.add_argument("--thumbnail", action='store_true')
+    parser.add_argument("--no-playlist", action='store_true')
+    parser.add_argument("--format", default='video', help="Định dạng tải: video hoặc mp3")
 
     args = parser.parse_args()
 
     try:
         main(args.url, args.save_path, args.resources_path, args.cookies_path,
-             args.quality, args.thumbnail, args.no_playlist)
+             args.quality, args.thumbnail, args.no_playlist, args.format)
     except Exception as e:
         print(f"FATAL_ERROR: {e}", file=sys.stderr, flush=True)
         sys.exit(1)

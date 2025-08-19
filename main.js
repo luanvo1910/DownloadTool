@@ -41,13 +41,14 @@ ipcMain.handle('dialog:selectCookieFile', async () => {
     return canceled ? null : filePaths[0];
 });
 
-ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath }) => {
+ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath, downloadFormat }) => {
   const downloaderExe = path.join(resourcesPath, 'downloader.exe');
   const args = [
       '--url', url,
       '--save-path', savePath,
       '--resources-path', resourcesPath,
-      '--quality', quality
+      '--quality', quality,
+      '--format', downloadFormat // Thêm tham số mới
   ];
   if (downloadThumbnail) args.push('--thumbnail');
   if (ignorePlaylist) args.push('--no-playlist');
