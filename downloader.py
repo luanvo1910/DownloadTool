@@ -3,11 +3,35 @@ import argparse
 import os
 import sys
 import io
+import json
 
 if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 if sys.stderr.encoding != 'utf-8':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+
+def check_protocol(yt_dlp_exe, url, cookies_path=None):
+    """Kiểm tra format khả dụng và xem có phải m3u8 hay https"""
+    cmd = [yt_dlp_exe, '-j', url]
+    if cookies_path and os.path.exists(cookies_path):
+        cmd.extend(['--cookies', cookies_path])
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if result.returncode != 0:
+            return None
+
+        info = json.loads(result.stdout.splitlines()[0])
+        formats = info.get("formats", [])
+        # Tìm format có protocol là https
+        for f in formats:
+            if f.get("protocol") == "https":
+                return "https"
+        return "m3u8"
+    except Exception:
+        return None
+
 
 def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_playlist, download_format):
     print(f"STATUS: Bắt đầu xử lý URL: {url}")
@@ -23,48 +47,53 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         return
 
     output_template = os.path.join(save_path, '%(title)s.%(ext)s')
-    
-    command = [ yt_dlp_exe ]
 
-    # Logic xử lý định dạng
+    # Chọn format video
     if download_format == 'mp3':
-        command.extend([
+        command = [
+            yt_dlp_exe,
             '-f', 'bestaudio',
             '--extract-audio',
             '--audio-format', 'mp3',
-            '--audio-quality', '0', # 0 là chất lượng tốt nhất
+            '--audio-quality', '0',
             '-o', output_template,
             '--ffmpeg-location', resources_path,
-        ])
-    else: # Mặc định là tải video
+        ]
+    else:
         if quality == '1080p':
-            format_selection = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
+            format_selection = 'bv*[height=1080]+ba/b[height=1080]'
         elif quality == '720p':
-            format_selection = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
+            format_selection = 'bv*[height=720]+ba/b[height=720]'
         else:
-            format_selection = 'bestvideo+bestaudio/best'
+            format_selection = 'bv*+ba/best'
 
-        safe_save_path = os.path.abspath(save_path).replace('\\', '/')
-        downloader_args_str = f'aria2c:--conf-path="{aria2c_conf}",--dir="{safe_save_path}"'
-        
-        command.extend([
-            '--quiet',
-            '--progress',
-            '--no-warnings',
-            '--no-call-home',
+        # Kiểm tra protocol
+        protocol = check_protocol(yt_dlp_exe, url, cookies_path)
+        print(f"STATUS: Protocol phát hiện: {protocol}")
+
+        command = [
+            yt_dlp_exe,
             '-f', format_selection,
             '--merge-output-format', 'mp4',
             '-o', output_template,
             '--ffmpeg-location', resources_path,
-            '--downloader', aria2c_exe,
-            '--downloader-args', downloader_args_str,
-        ])
+        ]
+
+        # Nếu protocol là https → dùng aria2c
+        if protocol == "https":
+            safe_save_path = os.path.abspath(save_path).replace('\\', '/')
+            downloader_args_str = f'aria2c:"--conf-path={aria2c_conf} --dir={safe_save_path}"'
+            command.extend([
+                '--downloader', 'aria2c',
+                '--downloader-args', downloader_args_str
+            ])
+        else:
+            print("STATUS: Dùng downloader mặc định (native) cho m3u8/HLS.")
 
     if no_playlist:
         command.insert(1, '--no-playlist')
     if thumbnail:
         command.insert(1, '--write-thumbnail')
-
     if cookies_path and os.path.exists(cookies_path):
         print(f"STATUS: Sử dụng file cookies từ: {cookies_path}")
         command.extend(['--cookies', cookies_path])
