@@ -4,6 +4,7 @@ import os
 import sys
 import io
 
+# Đảm bảo stdout và stderr sử dụng encoding UTF-8
 if sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 if sys.stderr.encoding.lower() != 'utf-8':
@@ -14,16 +15,22 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     print(f"STATUS: Bắt đầu xử lý URL: {url}")
     print(f"STATUS: Sẽ lưu file vào: {save_path}")
 
-    yt_dlp_exe = os.path.join(resources_path, 'yt-dlp.exe')
-    ffmpeg_exe = os.path.join(resources_path, 'ffmpeg.exe')
+    yt_dlp_exe_path = os.path.abspath(os.path.join(resources_path, 'yt-dlp.exe'))
+    ffmpeg_exe_path = os.path.abspath(os.path.join(resources_path, 'ffmpeg.exe'))
 
-    if not all(os.path.exists(p) for p in [yt_dlp_exe, ffmpeg_exe]):
+    if not all(os.path.exists(p) for p in [yt_dlp_exe_path, ffmpeg_exe_path]):
         print("ERROR: Thiếu file thực thi (yt-dlp.exe, ffmpeg.exe) trong thư mục resources.")
-        return
+        return 1
 
     output_template = os.path.join(save_path, '%(title)s.%(ext)s')
     
-    command = [ yt_dlp_exe ]
+    command = [
+        yt_dlp_exe_path,
+        # ✅ SỬA ĐỔI CUỐI CÙNG: Sử dụng --impersonate thay vì các tùy chọn cũ
+        # Tùy chọn này sẽ bắt chước toàn bộ yêu cầu mạng của trình duyệt Chrome
+        # và không cần đến --user-agent nữa.
+        '--impersonate', 'chrome'
+    ]
 
     if download_format.lower() == 'mp3':
         command.extend([
@@ -47,15 +54,13 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             '--merge-output-format', 'mp4',
             '-o', output_template,
             '--ffmpeg-location', resources_path,
-            # --- TÍNH NĂNG MỚI: TẢI ĐA LUỒNG BẰNG YT-DLP ---
-            # Tải đồng thời 8 mảnh (fragment) của video
             '--concurrent-fragments', '8',
         ])
 
     if no_playlist:
-        command.insert(1, '--no-playlist')
+        command.append('--no-playlist')
     if thumbnail:
-        command.insert(1, '--write-thumbnail')
+        command.append('--write-thumbnail')
 
     if cookies_path and os.path.exists(cookies_path):
         print(f"STATUS: Sử dụng file cookies từ: {cookies_path}")
@@ -84,6 +89,8 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         print("SUCCESS: Tải và xử lý file thành công!")
     else:
         print(f"ERROR: Quá trình thất bại với mã lỗi {process.returncode}.")
+    
+    return process.returncode
 
 
 if __name__ == '__main__':
@@ -100,8 +107,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     try:
-        main(args.url, args.save_path, args.resources_path, args.cookies_path,
-             args.quality, args.thumbnail, args.no_playlist, args.format)
+        exit_code = main(args.url, args.save_path, args.resources_path, args.cookies_path,
+                         args.quality, args.thumbnail, args.no_playlist, args.format)
+        sys.exit(exit_code)
+        
     except Exception as e:
         print(f"FATAL_ERROR: {e}", file=sys.stderr, flush=True)
         sys.exit(1)
