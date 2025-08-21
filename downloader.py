@@ -3,104 +3,67 @@ import argparse
 import os
 import sys
 import io
-import json
 
-if sys.stdout.encoding != 'utf-8':
+if sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-if sys.stderr.encoding != 'utf-8':
+if sys.stderr.encoding.lower() != 'utf-8':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-
-def check_protocol(yt_dlp_exe, url, cookies_path=None):
-    """Kiểm tra format khả dụng và xem có phải m3u8 hay https"""
-    cmd = [yt_dlp_exe, '-j', url]
-    if cookies_path and os.path.exists(cookies_path):
-        cmd.extend(['--cookies', cookies_path])
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
-        if result.returncode != 0:
-            return None
-
-        info = json.loads(result.stdout.splitlines()[0])
-        formats = info.get("formats", [])
-        # Tìm format có protocol là https
-        for f in formats:
-            if f.get("protocol") == "https":
-                return "https"
-        return "m3u8"
-    except Exception:
-        return None
-
-
 def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_playlist, download_format):
+    print(f"Bắt đầu quá trình tải...")
     print(f"STATUS: Bắt đầu xử lý URL: {url}")
     print(f"STATUS: Sẽ lưu file vào: {save_path}")
 
     yt_dlp_exe = os.path.join(resources_path, 'yt-dlp.exe')
     ffmpeg_exe = os.path.join(resources_path, 'ffmpeg.exe')
-    aria2c_exe = os.path.join(resources_path, 'aria2c.exe')
-    aria2c_conf = os.path.join(resources_path, 'aria2c.conf')
 
-    if not all(os.path.exists(p) for p in [yt_dlp_exe, ffmpeg_exe, aria2c_exe, aria2c_conf]):
-        print(f"ERROR: Thiếu file thực thi hoặc file cấu hình trong thư mục resources.")
+    if not all(os.path.exists(p) for p in [yt_dlp_exe, ffmpeg_exe]):
+        print("ERROR: Thiếu file thực thi (yt-dlp.exe, ffmpeg.exe) trong thư mục resources.")
         return
 
     output_template = os.path.join(save_path, '%(title)s.%(ext)s')
+    
+    command = [ yt_dlp_exe ]
 
-    # Chọn format video
-    if download_format == 'mp3':
-        command = [
-            yt_dlp_exe,
+    if download_format.lower() == 'mp3':
+        command.extend([
             '-f', 'bestaudio',
             '--extract-audio',
             '--audio-format', 'mp3',
             '--audio-quality', '0',
             '-o', output_template,
             '--ffmpeg-location', resources_path,
-        ]
+        ])
     else:
-        if quality == '1080p':
-            format_selection = 'bv*[height=1080]+ba/b[height=1080]'
-        elif quality == '720p':
-            format_selection = 'bv*[height=720]+ba/b[height=720]'
+        if quality == "1080p":
+            format_selection = "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+        elif quality == "720p":
+            format_selection = "bestvideo[height<=720]+bestaudio/best[height<=720]"
         else:
-            format_selection = 'bv*+ba/best'
+            format_selection = "bestvideo+bestaudio/best"
 
-        # Kiểm tra protocol
-        protocol = check_protocol(yt_dlp_exe, url, cookies_path)
-        print(f"STATUS: Protocol phát hiện: {protocol}")
-
-        command = [
-            yt_dlp_exe,
+        command.extend([
             '-f', format_selection,
             '--merge-output-format', 'mp4',
             '-o', output_template,
             '--ffmpeg-location', resources_path,
-        ]
-
-        # Nếu protocol là https → dùng aria2c
-        if protocol == "https":
-            safe_save_path = os.path.abspath(save_path).replace('\\', '/')
-            downloader_args_str = f'aria2c:"--conf-path={aria2c_conf} --dir={safe_save_path}"'
-            command.extend([
-                '--downloader', 'aria2c',
-                '--downloader-args', downloader_args_str
-            ])
-        else:
-            print("STATUS: Dùng downloader mặc định (native) cho m3u8/HLS.")
+            # --- TÍNH NĂNG MỚI: TẢI ĐA LUỒNG BẰNG YT-DLP ---
+            # Tải đồng thời 8 mảnh (fragment) của video
+            '--concurrent-fragments', '8',
+        ])
 
     if no_playlist:
         command.insert(1, '--no-playlist')
     if thumbnail:
         command.insert(1, '--write-thumbnail')
+
     if cookies_path and os.path.exists(cookies_path):
         print(f"STATUS: Sử dụng file cookies từ: {cookies_path}")
         command.extend(['--cookies', cookies_path])
 
     command.append(url)
 
-    print("STATUS: Đang thực thi lệnh...", flush=True)
+    print("STATUS: Đang thực thi yt-dlp...", flush=True)
 
     process = subprocess.Popen(
         command,
@@ -124,7 +87,7 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Tải video từ URL với các tùy chọn.")
+    parser = argparse.ArgumentParser(description="Tải video từ URL với yt-dlp.")
     parser.add_argument("--url", required=True)
     parser.add_argument("--save-path", required=True)
     parser.add_argument("--resources-path", required=True)
