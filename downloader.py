@@ -20,14 +20,38 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         print("ERROR: Thiếu file thực thi yt-dlp.exe.")
         return 1
 
+    # Thêm đoạn mã này để tự động cập nhật yt-dlp
+    print("STATUS: Đang kiểm tra và cập nhật yt-dlp...")
+    try:
+        update_process = subprocess.Popen(
+            [yt_dlp_exe_path, "-U"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        for line in iter(update_process.stdout.readline, ''):
+            print(line.strip(), flush=True)
+        update_process.wait()
+        if update_process.returncode == 0:
+            print("STATUS: yt-dlp đã được cập nhật thành công.")
+        else:
+            print(f"ERROR: Cập nhật yt-dlp thất bại với mã lỗi {update_process.returncode}.")
+    except Exception as e:
+        print(f"ERROR: Lỗi khi cố gắng cập nhật yt-dlp: {e}")
+
     output_template = os.path.join(save_path, '%(title)s.%(ext)s')
     
     command = [
         yt_dlp_exe_path,
         '--impersonate', 'chrome',
-        '--downloader', 'aria2c',
-        # ✅ SỬA LỖI: Xóa dấu ngoặc kép "" bao quanh các tham số
-        '--downloader-args', 'aria2c:-x 16 -s 16 -k 1M'
+        # Tăng tốc độ tải bằng cách tải xuống nhiều fragment cùng lúc
+        '--concurrent-fragments', '5',
+        # Thêm các tùy chọn thử lại để tăng độ ổn định
+        '--retries', '10',
+        '--fragment-retries', '10'
     ]
 
     if download_format.lower() == 'mp3':
@@ -65,7 +89,7 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
 
     command.append(url)
 
-    print("STATUS: Đang thực thi yt-dlp và aria2c...", flush=True)
+    print("STATUS: Đang thực thi yt-dlp...", flush=True)
 
     process = subprocess.Popen(
         command,
