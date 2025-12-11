@@ -70,11 +70,16 @@ function App() {
       setLog(prevLog => prevLog + message);
       
       const lowerCaseMessage = message.toLowerCase();
+      // Phát hiện các lỗi yêu cầu cookies/authentication
       if (lowerCaseMessage.includes('login to confirm your age') || 
           lowerCaseMessage.includes('sign in to confirm your age') ||
+          lowerCaseMessage.includes('sign in to confirm you\'re not a bot') ||
           lowerCaseMessage.includes('this video is available to members only') ||
-          (lowerCaseMessage.includes('http error 403') && lowerCaseMessage.includes('forbidden'))) {
-        setModalMessage('Video này có thể yêu cầu đăng nhập. Vui lòng cung cấp file cookies.txt để tiếp tục.');
+          lowerCaseMessage.includes('from-browser or --cookies') ||
+          lowerCaseMessage.includes('exporting youtube cookies') ||
+          (lowerCaseMessage.includes('http error 403') && lowerCaseMessage.includes('forbidden')) ||
+          (lowerCaseMessage.includes('authentication') && lowerCaseMessage.includes('required'))) {
+        setModalMessage('Video này yêu cầu đăng nhập hoặc xác thực. Vui lòng cung cấp file cookies.txt để tiếp tục.\n\nCách lấy cookies:\n1. Cài extension "Get cookies.txt LOCALLY" hoặc "cookies.txt" trên Chrome/Edge\n2. Truy cập youtube.com và đăng nhập\n3. Click extension và export cookies.txt\n4. Chọn file cookies.txt trong app này.');
         setIsDownloading(false);
         setShowCookieModal(true);
       }
