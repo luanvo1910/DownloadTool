@@ -61,6 +61,29 @@ def download_node_runtime(dest_dir):
         return None
 
 
+def check_deno_runtime():
+    """
+    Kiểm tra xem Deno có sẵn không (recommended JS runtime cho yt-dlp).
+    Trả về đường dẫn đến deno nếu tìm thấy, None nếu không.
+    """
+    deno_path = shutil.which("deno")
+    if deno_path:
+        # Kiểm tra version để đảm bảo >= 2.0.0
+        try:
+            result = subprocess.run(
+                [deno_path, "--version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            if result.returncode == 0:
+                return deno_path
+        except:
+            pass
+    return None
+
 def ensure_node_runtime():
     """
     Đảm bảo có sẵn Node.js cho yt-dlp (JS runtime).
@@ -85,6 +108,25 @@ def ensure_node_runtime():
         return downloaded, node_dir
 
     return None, None
+
+def ensure_js_runtime():
+    """
+    Đảm bảo có sẵn JavaScript runtime cho yt-dlp.
+    Ưu tiên Deno (recommended), sau đó là Node.js.
+    Trả về tuple (runtime_type, runtime_path, prepend_path)
+    runtime_type: 'deno', 'node', hoặc None
+    """
+    # Kiểm tra Deno trước (recommended)
+    deno_path = check_deno_runtime()
+    if deno_path:
+        return 'deno', deno_path, None
+    
+    # Fallback về Node.js
+    node_path, node_prepend = ensure_node_runtime()
+    if node_path:
+        return 'node', node_path, node_prepend
+    
+    return None, None, None
 
 def update_ytdlp(yt_dlp_exe_path):
     """Cố gắng cập nhật yt-dlp, nếu thất bại thì tải về AppData"""
@@ -145,14 +187,21 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     # Cập nhật yt-dlp (thử cập nhật tại chỗ, nếu thất bại thì tải về AppData)
     yt_dlp_exe_path = update_ytdlp(yt_dlp_exe_path)
 
-    # Giới hạn độ dài tên file và loại ký tự lạ để tránh lỗi Windows path/emoji
-    output_template = os.path.join(save_path, '%(title).80s-%(id)s.%(ext)s')
+    # Giới hạn độ dài tên file (tăng lên 200 ký tự) và loại bỏ các ký tự không hợp lệ trên Windows
+    # Sử dụng .200s để giữ được tên dài hơn, và yt-dlp sẽ tự động xử lý các ký tự không hợp lệ
+    # %(id)s là ID video YouTube (ví dụ: VrSQdgJU3fY) - giúp tránh trùng tên khi nhiều video có cùng tiêu đề
+    output_template = os.path.join(save_path, '%(title).200s.%(ext)s')
 
-    node_path, node_prepend = ensure_node_runtime()
-    if node_path:
-        print(f"STATUS: Đã sẵn sàng JS runtime: {node_path}")
+    # Kiểm tra và sử dụng JS runtime (ưu tiên Deno, sau đó Node)
+    js_runtime_type, js_runtime_path, js_prepend = ensure_js_runtime()
+    
+    if js_runtime_type == 'deno':
+        print(f"STATUS: Đã sẵn sàng JS runtime: Deno ({js_runtime_path})")
+    elif js_runtime_type == 'node':
+        print(f"STATUS: Đã sẵn sàng JS runtime: Node.js ({js_runtime_path})")
     else:
-        print("WARNING: Thiếu Node.js, một số định dạng YouTube có thể bị bỏ qua.")
+        print("WARNING: Thiếu JavaScript runtime (Deno/Node.js), một số định dạng YouTube có thể bị bỏ qua.")
+        print("WARNING: Challenge solving có thể thất bại. Khuyến nghị cài đặt Deno hoặc Node.js.")
     
     command = [
         yt_dlp_exe_path,
@@ -162,10 +211,17 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         '--concurrent-fragments', '5',
         # Thêm các tùy chọn thử lại để tăng độ ổn định
         '--retries', '10',
-        '--fragment-retries', '10'
+        '--fragment-retries', '10',
+        # Thêm các tùy chọn để cải thiện khả năng tải video bị giới hạn
+        '--extractor-args', 'youtube:player_client=android,web',
+        # Đảm bảo EJS scripts được tải từ GitHub (theo yt-dlp EJS wiki)
+        '--remote-components', 'ejs:github',
     ]
 
-    if node_path:
+    if js_runtime_type == 'deno':
+        # Deno được enable by default, nhưng có thể chỉ định path nếu cần
+        command.extend(['--js-runtimes', f'deno:{js_runtime_path}'])
+    elif js_runtime_type == 'node':
         # yt-dlp sẽ tìm node trong PATH; nếu portable, chúng ta đã thêm PATH ở env
         command.extend(['--js-runtimes', 'node'])
 
@@ -177,13 +233,13 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             '--audio-quality', '0',
             '-o', output_template,
             '--ffmpeg-location', resources_path,
-            '--restrict-filenames',
+            '--windows-filenames',  # Chỉ loại bỏ ký tự không hợp lệ trên Windows, giữ tên gần với tên gốc
         ])
     else:
         if quality == "1080p":
-            format_selection = "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+            format_selection = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
         elif quality == "720p":
-            format_selection = "bestvideo[height<=720]+bestaudio/best[height<=720]"
+            format_selection = "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
         else:
             format_selection = "bestvideo+bestaudio/best"
 
@@ -192,7 +248,7 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             '--merge-output-format', 'mp4',
             '-o', output_template,
             '--ffmpeg-location', resources_path,
-            '--restrict-filenames',
+            '--windows-filenames',  # Chỉ loại bỏ ký tự không hợp lệ trên Windows, giữ tên gần với tên gốc
         ])
 
     if no_playlist:
@@ -209,8 +265,8 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     print("STATUS: Đang thực thi yt-dlp...", flush=True)
 
     env = os.environ.copy()
-    if node_prepend:
-        env["PATH"] = f"{node_prepend}{os.pathsep}{env.get('PATH', '')}"
+    if js_prepend:
+        env["PATH"] = f"{js_prepend}{os.pathsep}{env.get('PATH', '')}"
 
     process = subprocess.Popen(
         command,
@@ -238,19 +294,105 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         print(f"ERROR: Quá trình thất bại với mã lỗi {process.returncode}.")
         # Kiểm tra các loại lỗi phổ biến
         output_text = '\n'.join(output_lines).lower()
+        output_text_original = '\n'.join(output_lines)  # Giữ nguyên để in ra
         
         # Kiểm tra lỗi: chỉ có ảnh (thumbnail) có sẵn
-        if 'only images are available' in output_text or \
-           ('requested format is not available' in output_text and 'only images' in output_text):
+        has_only_images = 'only images are available' in output_text
+        has_format_error = 'requested format is not available' in output_text
+        has_challenge_failed = 'challenge solving failed' in output_text
+        
+        # Kích hoạt fallback nếu có "only images" hoặc "requested format is not available" 
+        # (thường đi kèm với "only images" trong trường hợp này)
+        should_try_thumbnail = has_only_images or (has_format_error and 'images' in output_text)
+        
+        if should_try_thumbnail:
             print("\n⚠️  LỖI: Video này chỉ có ảnh thumbnail có sẵn, không có video/audio để tải.")
+            if has_challenge_failed:
+                print("⚠️  CẢNH BÁO: Không thể giải quyết challenge của YouTube - điều này có thể là nguyên nhân.")
+                if not js_runtime_type:
+                    print("⚠️  NGUYÊN NHÂN: Thiếu JavaScript runtime (Deno/Node.js) để giải quyết challenge.")
+                    print("   Hãy cài đặt Deno (khuyến nghị) hoặc Node.js để cải thiện khả năng tải video.")
             print("Nguyên nhân có thể:")
-            print("  - Video bị giới hạn độ tuổi và cần cookies để xác thực")
+            print("  - Video bị giới hạn độ tuổi và cookies hiện tại không đủ quyền")
             print("  - Video bị khóa theo vùng địa lý")
             print("  - Video đã bị xóa hoặc chuyển sang chế độ riêng tư")
+            print("  - YouTube đã chặn truy cập do challenge solving failed")
             print("  - URL không trỏ đến video hợp lệ")
-            if not cookies_path:
-                print("\n💡 GỢI Ý: Hãy thử thêm file cookies.txt trong ứng dụng và tải lại.")
-            print("💡 Bạn có thể thử sử dụng --list-formats để xem các định dạng có sẵn.")
+            
+            # Thử tải thumbnail như một fallback
+            print("\n🔄 Đang thử tải thumbnail như một giải pháp thay thế...")
+            
+            # Thử với nhiều client khác nhau để bypass challenge
+            clients_to_try = ['android', 'ios', 'web']
+            thumbnail_downloaded = False
+            
+            for client in clients_to_try:
+                if thumbnail_downloaded:
+                    break
+                    
+                print(f"\n🔄 Thử với client: {client}...")
+                thumbnail_command = [
+                    yt_dlp_exe_path,
+                    '--impersonate', 'chrome',
+                    '--no-update',
+                    '--write-thumbnail',
+                    '--skip-download',
+                    '--extractor-args', f'youtube:player_client={client}',
+                    '-o', os.path.join(save_path, '%(title).200s.%(ext)s'),
+                    '--windows-filenames',  # Chỉ loại bỏ ký tự không hợp lệ trên Windows, giữ tên gần với tên gốc
+                ]
+                
+                if cookies_path and os.path.exists(cookies_path):
+                    thumbnail_command.extend(['--cookies', cookies_path])
+                
+                # Thêm JS runtime và EJS components cho thumbnail download
+                if js_runtime_type == 'deno':
+                    thumbnail_command.extend(['--js-runtimes', f'deno:{js_runtime_path}'])
+                elif js_runtime_type == 'node':
+                    thumbnail_command.extend(['--js-runtimes', 'node'])
+                thumbnail_command.extend(['--remote-components', 'ejs:github'])
+                
+                if js_prepend:
+                    env_thumb = os.environ.copy()
+                    env_thumb["PATH"] = f"{js_prepend}{os.pathsep}{env_thumb.get('PATH', '')}"
+                else:
+                    env_thumb = os.environ.copy()
+                
+                thumbnail_command.append(url)
+                
+                thumb_process = subprocess.Popen(
+                    thumbnail_command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    env=env_thumb
+                )
+                
+                thumb_output = []
+                for line in iter(thumb_process.stdout.readline, ''):
+                    line = line.strip()
+                    if line:
+                        print(line, flush=True)
+                        thumb_output.append(line)
+                
+                thumb_process.wait()
+                
+                if thumb_process.returncode == 0:
+                    print(f"\n✅ Đã tải thành công thumbnail của video (sử dụng client: {client})!")
+                    thumbnail_downloaded = True
+                    return 0
+            
+            if not thumbnail_downloaded:
+                print("\n❌ Không thể tải thumbnail với bất kỳ client nào.")
+                if not cookies_path:
+                    print("\n💡 GỢI Ý: Hãy thử thêm file cookies.txt mới trong ứng dụng và tải lại.")
+                else:
+                    print("\n💡 GỢI Ý: Cookies hiện tại có thể không đủ quyền hoặc đã hết hạn.")
+                    print("   Hãy thử xuất cookies mới từ trình duyệt (đảm bảo đã đăng nhập và có quyền xem video).")
+                print("💡 Bạn có thể thử sử dụng --list-formats để xem các định dạng có sẵn.")
         
         # Kiểm tra lỗi authentication
         elif ('sign in' in output_text and 'bot' in output_text) or \
@@ -259,9 +401,12 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             if not cookies_path:
                 print("\nGỢI Ý: Video này có thể yêu cầu cookies để xác thực.")
                 print("Hãy thử thêm file cookies.txt trong ứng dụng và tải lại.")
+            else:
+                print("\n⚠️  Cookies hiện tại có thể không đủ quyền hoặc đã hết hạn.")
+                print("💡 GỢI Ý: Hãy thử xuất cookies mới từ trình duyệt và cập nhật lại.")
         
-        # Kiểm tra lỗi challenge solving (YouTube anti-bot)
-        elif 'challenge solving failed' in output_text:
+        # Kiểm tra lỗi challenge solving (YouTube anti-bot) - chỉ khi không phải lỗi "only images"
+        elif has_challenge_failed and not has_only_images:
             print("\n⚠️  CẢNH BÁO: Không thể giải quyết challenge của YouTube.")
             print("Điều này có thể do:")
             print("  - YouTube đã thay đổi cơ chế bảo vệ")
@@ -269,6 +414,8 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             print("  - Cần sử dụng cookies để xác thực")
             if not cookies_path:
                 print("\n💡 GỢI Ý: Hãy thử thêm file cookies.txt để cải thiện khả năng tải video.")
+            else:
+                print("\n💡 GỢI Ý: Cookies hiện tại có thể không đủ. Hãy thử xuất cookies mới từ trình duyệt.")
     
     return process.returncode
 
