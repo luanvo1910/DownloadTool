@@ -145,7 +145,8 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     # Cập nhật yt-dlp (thử cập nhật tại chỗ, nếu thất bại thì tải về AppData)
     yt_dlp_exe_path = update_ytdlp(yt_dlp_exe_path)
 
-    output_template = os.path.join(save_path, '%(title)s.%(ext)s')
+    # Giới hạn độ dài tên file và loại ký tự lạ để tránh lỗi Windows path/emoji
+    output_template = os.path.join(save_path, '%(title).80s-%(id)s.%(ext)s')
 
     node_path, node_prepend = ensure_node_runtime()
     if node_path:
@@ -176,6 +177,7 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             '--audio-quality', '0',
             '-o', output_template,
             '--ffmpeg-location', resources_path,
+            '--restrict-filenames',
         ])
     else:
         if quality == "1080p":
@@ -190,6 +192,7 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             '--merge-output-format', 'mp4',
             '-o', output_template,
             '--ffmpeg-location', resources_path,
+            '--restrict-filenames',
         ])
 
     if no_playlist:
@@ -233,14 +236,39 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         print("SUCCESS: Tải và xử lý file thành công!")
     else:
         print(f"ERROR: Quá trình thất bại với mã lỗi {process.returncode}.")
-        # Kiểm tra xem có phải lỗi authentication không
+        # Kiểm tra các loại lỗi phổ biến
         output_text = '\n'.join(output_lines).lower()
-        if ('sign in' in output_text and 'bot' in output_text) or \
-           ('from-browser' in output_text and 'cookies' in output_text) or \
-           ('authentication' in output_text and 'required' in output_text):
+        
+        # Kiểm tra lỗi: chỉ có ảnh (thumbnail) có sẵn
+        if 'only images are available' in output_text or \
+           ('requested format is not available' in output_text and 'only images' in output_text):
+            print("\n⚠️  LỖI: Video này chỉ có ảnh thumbnail có sẵn, không có video/audio để tải.")
+            print("Nguyên nhân có thể:")
+            print("  - Video bị giới hạn độ tuổi và cần cookies để xác thực")
+            print("  - Video bị khóa theo vùng địa lý")
+            print("  - Video đã bị xóa hoặc chuyển sang chế độ riêng tư")
+            print("  - URL không trỏ đến video hợp lệ")
+            if not cookies_path:
+                print("\n💡 GỢI Ý: Hãy thử thêm file cookies.txt trong ứng dụng và tải lại.")
+            print("💡 Bạn có thể thử sử dụng --list-formats để xem các định dạng có sẵn.")
+        
+        # Kiểm tra lỗi authentication
+        elif ('sign in' in output_text and 'bot' in output_text) or \
+             ('from-browser' in output_text and 'cookies' in output_text) or \
+             ('authentication' in output_text and 'required' in output_text):
             if not cookies_path:
                 print("\nGỢI Ý: Video này có thể yêu cầu cookies để xác thực.")
                 print("Hãy thử thêm file cookies.txt trong ứng dụng và tải lại.")
+        
+        # Kiểm tra lỗi challenge solving (YouTube anti-bot)
+        elif 'challenge solving failed' in output_text:
+            print("\n⚠️  CẢNH BÁO: Không thể giải quyết challenge của YouTube.")
+            print("Điều này có thể do:")
+            print("  - YouTube đã thay đổi cơ chế bảo vệ")
+            print("  - Cần cập nhật yt-dlp lên phiên bản mới nhất")
+            print("  - Cần sử dụng cookies để xác thực")
+            if not cookies_path:
+                print("\n💡 GỢI Ý: Hãy thử thêm file cookies.txt để cải thiện khả năng tải video.")
     
     return process.returncode
 
