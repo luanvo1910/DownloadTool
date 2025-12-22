@@ -194,11 +194,8 @@ function App() {
         {downloadFormat === 'video' && (
           <div className="input-group">
             <label htmlFor="quality-select">Chất lượng Video:</label>
-            <select id="quality-select" value={quality} onChange={(e) => setQuality(e.target.value)} disabled={isDownloading}>
-              <option value="best">Tốt nhất (4K, 2K...)</option>
-              <option value="1080p">Tối đa 1080p</option>
-              <option value="720p">Tối đa 720p</option>
-            </select>
+            <input id="quality-select" type="text" value="1080p" readOnly disabled={isDownloading} style={{opacity: 0.7, cursor: 'not-allowed'}}/>
+            <small style={{display: 'block', marginTop: '4px', color: '#666', fontSize: '12px'}}>Chỉ tải video 1080p</small>
           </div>
         )}
 

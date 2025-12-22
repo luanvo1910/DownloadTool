@@ -236,12 +236,8 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             '--windows-filenames',  # Chỉ loại bỏ ký tự không hợp lệ trên Windows, giữ tên gần với tên gốc
         ])
     else:
-        if quality == "1080p":
-            format_selection = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
-        elif quality == "720p":
-            format_selection = "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
-        else:
-            format_selection = "bestvideo+bestaudio/best"
+        # Chỉ tải 1080p, không có fallback
+        format_selection = "bestvideo[height=1080]+bestaudio/best[height=1080]"
 
         command.extend([
             '-f', format_selection,
