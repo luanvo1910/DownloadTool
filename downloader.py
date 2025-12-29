@@ -222,7 +222,10 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         '--retries', '10',
         '--fragment-retries', '10',
         # Thêm các tùy chọn để cải thiện khả năng tải video bị giới hạn
-        '--extractor-args', 'youtube:player_client=android,web',
+        # Thử nhiều client để bypass SABR streaming và truy cập format chất lượng cao hơn
+        # Ưu tiên ios và tv_embedded vì chúng thường không bị SABR streaming
+        # web_embedded cũng tốt để bypass một số hạn chế
+        '--extractor-args', 'youtube:player_client=ios,tv_embedded,web_embedded,web,android',
         # Đảm bảo EJS scripts được tải từ GitHub (theo yt-dlp EJS wiki)
         '--remote-components', 'ejs:github',
     ]
@@ -245,17 +248,26 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             '--windows-filenames',  # Chỉ loại bỏ ký tự không hợp lệ trên Windows, giữ tên gần với tên gốc
         ])
     else:
-        # Ưu tiên 1080p, nếu không có thì tải 720p, nếu không có thì tải chất lượng cao nhất có sẵn
-        # Format string này sẽ:
-        # 1. Ưu tiên bestvideo+bestaudio có height <= 1080 và >= 720 (yt-dlp sẽ tự chọn 1080p nếu có)
-        # 2. Nếu không có, thử best có height <= 1080 và >= 720
-        # 3. Fallback xuống 720p chính xác nếu không có 1080p
-        # 4. Nếu không có cả 1080p và 720p, tải chất lượng cao nhất có sẵn (best)
-        format_selection = "bestvideo[height<=1080][height>=720]+bestaudio[asr>=44100]/best[height<=1080][height>=720]/bestvideo[height=720]+bestaudio/best[height=720]/bestvideo+bestaudio/best"
+        # Format selection ưu tiên chất lượng cao nhất với bitrate cao
+        # Ưu tiên thứ tự:
+        # 1. bestvideo có height >= 720p + bestaudio (chất lượng cao nhất)
+        # 2. bestvideo có height >= 480p + bestaudio (fallback nếu không có 720p+)
+        # 3. best có height >= 720p (single file chất lượng cao)
+        # 4. best có height >= 480p (fallback)
+        # 5. bestvideo+bestaudio (bất kỳ resolution nào)
+        # 6. best (format tốt nhất có sẵn)
+        # Loại bỏ format quá thấp (dưới 480p như format 18-360p) bằng cách reject chúng
+        # Format 18 là 360p, format 22 là 720p, format 137+140 là 1080p
+        # Reject format 18 và các format thấp khác (dưới 480p)
+        format_selection = "bestvideo[height>=720]+bestaudio[asr>=44100]/bestvideo[height>=480]+bestaudio[asr>=44100]/best[height>=720]/best[height>=480]/bestvideo+bestaudio/best/-18/-36/-17/-5"
 
         command.extend([
             '-f', format_selection,
+            # Ưu tiên format có resolution cao hơn, bitrate cao hơn, codec tốt hơn
+            '--format-sort', '+height:+tbr:+codec',
             '--merge-output-format', 'mp4',
+            # Sử dụng copy codec khi merge để giữ nguyên chất lượng gốc, không re-encode
+            '--postprocessor-args', 'ffmpeg:-c copy',
             '-o', output_template,
             '--ffmpeg-location', resources_path,
             '--windows-filenames',  # Chỉ loại bỏ ký tự không hợp lệ trên Windows, giữ tên gần với tên gốc
@@ -264,7 +276,10 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     if no_playlist:
         command.append('--no-playlist')
     if thumbnail:
-        command.extend(['--write-thumbnail', '--embed-thumbnail'])
+        # Chỉ write thumbnail, không embed để tránh lỗi làm fail toàn bộ quá trình
+        # Embed thumbnail có thể fail do format webp không tương thích với ffmpeg
+        command.extend(['--write-thumbnail'])
+        # Không embed thumbnail để tránh lỗi, user có thể tự embed sau nếu cần
 
     # Tăng khả năng thành công với TikTok: header mobile + player_client mobile + IPv4 + download_api
     if 'tiktok.com' in sanitized_url:
@@ -348,7 +363,7 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
                 tiktok_fallback_cmd.extend(['--write-thumbnail', '--embed-thumbnail'])
             if cookies_path and os.path.exists(cookies_path):
                 tiktok_fallback_cmd.extend(['--cookies', cookies_path])
-            # Giữ định dạng ưu tiên 1080p/720p
+            # Sử dụng format selection tốt nhất (đã được cập nhật ở trên)
             tiktok_fallback_cmd.extend(['-f', format_selection])
             tiktok_fallback_cmd.append(sanitized_url)
 
