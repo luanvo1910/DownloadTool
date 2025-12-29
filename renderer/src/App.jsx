@@ -66,6 +66,19 @@ function App() {
   const [queue, setQueue] = useState([]);
   const [currentDownloadId, setCurrentDownloadId] = useState(null);
 
+  const detectPlatform = (rawUrl) => {
+    if (!rawUrl) return null;
+    const u = rawUrl.toLowerCase();
+    if (u.includes('youtube.com') || u.includes('youtu.be')) return 'YouTube';
+    if (u.includes('tiktok.com')) return 'TikTok';
+    if (u.includes('instagram.com')) return 'Instagram';
+    if (u.includes('twitter.com') || u.includes('x.com')) return 'Twitter / X';
+    if (u.includes('facebook.com') || u.includes('fb.watch')) return 'Facebook';
+    if (u.includes('bilibili.com')) return 'Bilibili';
+    if (u.includes('vimeo.com')) return 'Vimeo';
+    return 'Khác';
+  };
+
   useEffect(() => {
     // Chỉ scroll nếu người dùng đang ở gần cuối log area
     if (logContainerRef.current) {
@@ -247,11 +260,31 @@ function App() {
       <div className="input-group">
         <label htmlFor="url-input">Link Video:</label>
         <div className="url-input-container">
-          <input id="url-input" type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Dán link hoặc dùng extension trên trình duyệt" onKeyPress={(e) => { if (e.key === 'Enter') handleAddToQueue(); }}/>
+          <input
+            id="url-input"
+            type="text"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="Dán link từ YouTube, TikTok, Instagram, Twitter/X, Facebook, Bilibili, Vimeo..."
+            onKeyPress={(e) => { if (e.key === 'Enter') handleAddToQueue(); }}
+          />
           <button onClick={handleAddToQueue} className="add-queue-btn" disabled={!url || !savePath}>
             Thêm vào hàng chờ
           </button>
         </div>
+        {url && (
+          <small style={{ display: 'block', marginTop: '4px', color: '#888', fontSize: '12px' }}>
+            Nền tảng phát hiện: {detectPlatform(url)} – yt-dlp hỗ trợ rất nhiều site khác, xem danh sách tại&nbsp;
+            <a
+              href="https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md"
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: '#4a90e2' }}
+            >
+              danh sách site hỗ trợ
+            </a>
+          </small>
+        )}
       </div>
       <div className="input-group">
         <label htmlFor="save-path-input">Lưu vào:</label>

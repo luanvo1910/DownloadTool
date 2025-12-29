@@ -173,14 +173,44 @@ def update_ytdlp(yt_dlp_exe_path):
         print("WARNING: Không thể cập nhật yt-dlp. Sẽ sử dụng phiên bản hiện có.")
         return yt_dlp_exe_path
 
+def detect_platform(url: str) -> str:
+    """
+    Xác định platform từ URL để áp dụng cấu hình phù hợp.
+    Trả về: 'youtube', 'tiktok', 'instagram', 'twitter', 'facebook', 'bilibili', 'vimeo', hoặc 'generic'
+    """
+    if not url:
+        return 'generic'
+    
+    u = url.lower()
+    if 'youtube.com' in u or 'youtu.be' in u:
+        return 'youtube'
+    if 'tiktok.com' in u:
+        return 'tiktok'
+    if 'instagram.com' in u:
+        return 'instagram'
+    if 'twitter.com' in u or 'x.com' in u:
+        return 'twitter'
+    if 'facebook.com' in u or 'fb.watch' in u:
+        return 'facebook'
+    if 'bilibili.com' in u:
+        return 'bilibili'
+    if 'vimeo.com' in u:
+        return 'vimeo'
+    return 'generic'
+
+
 def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_playlist, download_format):
     print(f"Bắt đầu quá trình tải...")
     print(f"STATUS: Bắt đầu xử lý URL: {url}")
     print(f"STATUS: Sẽ lưu file vào: {save_path}")
 
+    # Xác định platform (YouTube, TikTok, Instagram, Twitter, ...)
+    platform = detect_platform(url)
+    print(f"STATUS: Phát hiện nền tảng: {platform}")
+
     # Làm sạch URL TikTok để tránh query thừa gây lỗi extractor
     sanitized_url = url
-    if 'tiktok.com' in url:
+    if platform == 'tiktok':
         sanitized_url = url.split('?', 1)[0]
         if sanitized_url != url:
             print(f"STATUS: Đã làm sạch URL TikTok: {sanitized_url}")
@@ -221,14 +251,19 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         # Thêm các tùy chọn thử lại để tăng độ ổn định
         '--retries', '10',
         '--fragment-retries', '10',
-        # Thêm các tùy chọn để cải thiện khả năng tải video bị giới hạn
-        # Thử nhiều client để bypass SABR streaming và truy cập format chất lượng cao hơn
-        # Ưu tiên ios và tv_embedded vì chúng thường không bị SABR streaming
-        # web_embedded cũng tốt để bypass một số hạn chế
-        '--extractor-args', 'youtube:player_client=ios,tv_embedded,web_embedded,web,android',
         # Đảm bảo EJS scripts được tải từ GitHub (theo yt-dlp EJS wiki)
         '--remote-components', 'ejs:github',
     ]
+
+    # Chỉ thêm extractor-args của YouTube nếu URL là YouTube
+    if platform == 'youtube':
+        # Thử nhiều client để bypass SABR streaming và truy cập format chất lượng cao hơn
+        # Ưu tiên ios và tv_embedded vì chúng thường không bị SABR streaming
+        # web_embedded cũng tốt để bypass một số hạn chế
+        command.extend([
+            '--extractor-args',
+            'youtube:player_client=ios,tv_embedded,web_embedded,web,android',
+        ])
 
     if js_runtime_type == 'deno':
         # Deno được enable by default, nhưng có thể chỉ định path nếu cần
@@ -340,57 +375,104 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         output_text_original = '\n'.join(output_lines)  # Giữ nguyên để in ra
 
         # Fallback riêng cho TikTok nếu gặp lỗi "Video not available" / status code 0
-        if 'tiktok.com' in sanitized_url and ('video not available' in output_text or 'status code 0' in output_text):
+        if platform == 'tiktok' and ('video not available' in output_text or 'status code 0' in output_text):
             print("\n⚠️  TikTok trả về lỗi video not available/status 0. Đang thử lại với cấu hình fallback...")
-            tiktok_fallback_cmd = [
-                yt_dlp_exe_path,
-                '--add-headers', 'Referer:https://www.tiktok.com/',
-                '--add-headers', 'User-Agent:Mozilla/5.0 (Linux; Android 12; SM-G996B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-                '--add-headers', 'Accept-Language:en-US,en;q=0.9',
-                '--add-headers', 'Origin:https://www.tiktok.com',
-                '--add-headers', 'Sec-Fetch-Site:same-origin',
-                '--add-headers', 'Sec-Fetch-Mode:navigate',
-                '--add-headers', 'Sec-Fetch-Dest:document',
-                '--extractor-args', 'tiktok:player_client=android,app_info=1,download_api=1',
-                '--compat-options', 'tiktok-embed',  # thử thêm embed fallback
-                '--force-ipv4',
-                '--geo-bypass',
-                '--no-check-certificate',
-                '--merge-output-format', 'mp4',
-                '-o', output_template,
+            
+            # Thử nhiều cách fallback khác nhau
+            fallback_configs = [
+                {
+                    'name': 'Web client với headers đầy đủ',
+                    'extractor_args': 'tiktok:player_client=web',
+                    'headers': [
+                        ('Referer', 'https://www.tiktok.com/'),
+                        ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'),
+                        ('Accept-Language', 'en-US,en;q=0.9'),
+                        ('Origin', 'https://www.tiktok.com'),
+                    ]
+                },
+                {
+                    'name': 'Android client với download API',
+                    'extractor_args': 'tiktok:player_client=android,app_info=1,download_api=1',
+                    'headers': [
+                        ('Referer', 'https://www.tiktok.com/'),
+                        ('User-Agent', 'Mozilla/5.0 (Linux; Android 12; SM-G996B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'),
+                        ('Accept-Language', 'en-US,en;q=0.9'),
+                    ]
+                }
             ]
-            if thumbnail:
-                tiktok_fallback_cmd.extend(['--write-thumbnail', '--embed-thumbnail'])
-            if cookies_path and os.path.exists(cookies_path):
-                tiktok_fallback_cmd.extend(['--cookies', cookies_path])
-            # Sử dụng format selection tốt nhất (đã được cập nhật ở trên)
-            tiktok_fallback_cmd.extend(['-f', format_selection])
-            tiktok_fallback_cmd.append(sanitized_url)
+            
+            success = False
+            for config in fallback_configs:
+                if success:
+                    break
+                    
+                print(f"\n🔄 Thử fallback: {config['name']}...")
+                tiktok_fallback_cmd = [
+                    yt_dlp_exe_path,
+                    '--impersonate', 'chrome',
+                    '--no-update',
+                    '--downloader', 'native',
+                    '--force-ipv4',
+                    '--geo-bypass',
+                    '--merge-output-format', 'mp4',
+                    '-o', output_template,
+                    '--windows-filenames',
+                ]
+                
+                # Thêm headers
+                for header_name, header_value in config['headers']:
+                    tiktok_fallback_cmd.extend(['--add-headers', f'{header_name}:{header_value}'])
+                
+                # Thêm extractor args
+                tiktok_fallback_cmd.extend(['--extractor-args', config['extractor_args']])
+                
+                # Thêm JS runtime nếu có
+                if js_runtime_type == 'deno':
+                    tiktok_fallback_cmd.extend(['--js-runtimes', f'deno:{js_runtime_path}'])
+                elif js_runtime_type == 'node':
+                    tiktok_fallback_cmd.extend(['--js-runtimes', 'node'])
+                
+                if thumbnail:
+                    tiktok_fallback_cmd.extend(['--write-thumbnail'])
+                if cookies_path and os.path.exists(cookies_path):
+                    tiktok_fallback_cmd.extend(['--cookies', cookies_path])
+                
+                # Format selection cho TikTok (đơn giản hơn, TikTok thường chỉ có một format)
+                tiktok_fallback_cmd.extend(['-f', 'best'])
+                tiktok_fallback_cmd.append(sanitized_url)
 
-            fb_process = subprocess.Popen(
-                tiktok_fallback_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                env=env
-            )
-            fb_output = []
-            for line in iter(fb_process.stdout.readline, ''):
-                line = line.strip()
-                if line:
-                    print(line, flush=True)
-                    fb_output.append(line)
-            fb_process.wait()
+                fb_process = subprocess.Popen(
+                    tiktok_fallback_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    env=env
+                )
+                fb_output = []
+                for line in iter(fb_process.stdout.readline, ''):
+                    line = line.strip()
+                    if line:
+                        print(line, flush=True)
+                        fb_output.append(line)
+                fb_process.wait()
 
-            if fb_process.returncode == 0:
-                print("SUCCESS: TikTok đã tải thành công với cấu hình fallback!")
-                return 0
-            else:
-                print("WARNING: Fallback TikTok vẫn thất bại.")
-                output_lines.extend(fb_output)
+                if fb_process.returncode == 0:
+                    print(f"\n✅ SUCCESS: TikTok đã tải thành công với cấu hình fallback: {config['name']}!")
+                    success = True
+                    return 0
+                else:
+                    print(f"❌ Fallback '{config['name']}' thất bại, thử cách tiếp theo...")
+                    output_lines.extend(fb_output)
+            
+            # Nếu tất cả fallback đều thất bại
+            print("\n❌ Tất cả các cách fallback TikTok đều thất bại.")
+            print("💡 GỢI Ý:")
+            print("   - Video có thể đã bị xóa hoặc chuyển sang chế độ riêng tư")
+            print("   - Thử thêm cookies từ trình duyệt (đăng nhập TikTok trước)")
+            print("   - Kiểm tra xem video có còn tồn tại trên TikTok không")
         
         # Kiểm tra lỗi: chỉ có ảnh (thumbnail) có sẵn
         has_only_images = 'only images are available' in output_text
