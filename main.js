@@ -6,6 +6,12 @@ const { autoUpdater } = require('electron-updater');
 let mainWindow;
 let resourcesPath;
 
+// Hàng chờ download
+let downloadQueue = [];
+let isDownloading = false;
+let currentDownloadProcess = null;
+let currentDownloadId = null;
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -41,31 +47,173 @@ ipcMain.handle('dialog:selectCookieFile', async () => {
     return canceled ? null : filePaths[0];
 });
 
-ipcMain.on('download:start', (event, { url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath, downloadFormat }) => {
+// Thêm download vào hàng chờ
+ipcMain.on('queue:add', (event, downloadItem) => {
+  const id = Date.now() + Math.random();
+  const queueItem = {
+    id,
+    ...downloadItem,
+    status: 'pending', // pending, downloading, completed, failed
+    addedAt: new Date().toISOString()
+  };
+  downloadQueue.push(queueItem);
+  updateQueueStatus();
+  
+  // Nếu chưa đang download, bắt đầu download ngay
+  if (!isDownloading) {
+    processNextDownload();
+  }
+});
+
+// Xóa download khỏi hàng chờ
+ipcMain.on('queue:remove', (event, id) => {
+  const index = downloadQueue.findIndex(item => item.id === id);
+  if (index !== -1) {
+    // Nếu đang download item này, dừng nó
+    if (currentDownloadId === id && currentDownloadProcess) {
+      currentDownloadProcess.kill();
+      currentDownloadProcess = null;
+      currentDownloadId = null;
+      isDownloading = false;
+    }
+    downloadQueue.splice(index, 1);
+    updateQueueStatus();
+    
+    // Nếu không đang download, bắt đầu download tiếp theo
+    if (!isDownloading) {
+      processNextDownload();
+    }
+  }
+});
+
+// Retry download (đặt lại status thành pending)
+ipcMain.on('queue:retry', (event, id) => {
+  const item = downloadQueue.find(item => item.id === id);
+  if (item && item.status === 'failed') {
+    item.status = 'pending';
+    updateQueueStatus();
+    
+    // Nếu không đang download, bắt đầu download ngay
+    if (!isDownloading) {
+      processNextDownload();
+    }
+  }
+});
+
+// Xóa tất cả download khỏi hàng chờ
+ipcMain.on('queue:clear', () => {
+  if (currentDownloadProcess) {
+    currentDownloadProcess.kill();
+    currentDownloadProcess = null;
+  }
+  downloadQueue = [];
+  isDownloading = false;
+  currentDownloadId = null;
+  updateQueueStatus();
+});
+
+// Lấy trạng thái hàng chờ
+ipcMain.handle('queue:getStatus', () => {
+  return {
+    queue: downloadQueue,
+    isDownloading,
+    currentDownloadId
+  };
+});
+
+// Xử lý download tiếp theo trong hàng chờ
+function processNextDownload() {
+  if (isDownloading || downloadQueue.length === 0) {
+    return;
+  }
+
+  const nextItem = downloadQueue.find(item => item.status === 'pending');
+  if (!nextItem) {
+    return;
+  }
+
+  isDownloading = true;
+  currentDownloadId = nextItem.id;
+  nextItem.status = 'downloading';
+  updateQueueStatus();
+
+  // Xóa log cũ và bắt đầu log mới
+  mainWindow.webContents.send('download:clearLog');
+  mainWindow.webContents.send('download:log', `========== Bắt đầu tải: ${nextItem.url} ==========\n`);
+
   const downloaderExe = path.join(resourcesPath, 'downloader.exe');
   const args = [
-      '--url', url,
-      '--save-path', savePath,
+      '--url', nextItem.url,
+      '--save-path', nextItem.savePath,
       '--resources-path', resourcesPath,
-      '--quality', quality,
-      '--format', downloadFormat // Thêm tham số mới
+      '--quality', nextItem.quality,
+      '--format', nextItem.downloadFormat
   ];
-  if (downloadThumbnail) args.push('--thumbnail');
-  if (ignorePlaylist) args.push('--no-playlist');
-  if (cookiesPath) args.push('--cookies-path', cookiesPath);
+  if (nextItem.downloadThumbnail) args.push('--thumbnail');
+  if (nextItem.ignorePlaylist) args.push('--no-playlist');
+  if (nextItem.cookiesPath) args.push('--cookies-path', nextItem.cookiesPath);
 
-  const process = spawn(downloaderExe, args);
-  const sendLog = (data) => event.sender.send('download:log', data.toString());
+  currentDownloadProcess = spawn(downloaderExe, args);
+  const sendLog = (data) => {
+    mainWindow.webContents.send('download:log', data.toString());
+  };
   
-  process.stdout.on('data', sendLog);
-  process.stderr.on('data', sendLog);
+  currentDownloadProcess.stdout.on('data', sendLog);
+  currentDownloadProcess.stderr.on('data', sendLog);
 
-  process.on('close', (code) => {
+  currentDownloadProcess.on('close', (code) => {
     sendLog(`\n--- Tiến trình kết thúc với mã ${code} ---\n`);
-    if (code === 0) {
-      mainWindow.webContents.send('download_finished');
+    
+    // Cập nhật trạng thái
+    const item = downloadQueue.find(item => item.id === currentDownloadId);
+    if (item) {
+      if (code === 0) {
+        item.status = 'completed';
+        mainWindow.webContents.send('download_finished', { id: currentDownloadId });
+      } else {
+        item.status = 'failed';
+      }
+      updateQueueStatus(); // Cập nhật UI ngay lập tức
     }
+
+    // Reset và xử lý download tiếp theo
+    currentDownloadProcess = null;
+    currentDownloadId = null;
+    isDownloading = false;
+    
+    // Xử lý download tiếp theo (skip các item failed)
+    processNextDownload();
   });
+}
+
+// Cập nhật trạng thái hàng chờ cho renderer
+function updateQueueStatus() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('queue:status', {
+      queue: downloadQueue,
+      isDownloading,
+      currentDownloadId
+    });
+  }
+}
+
+// Giữ lại handler cũ để tương thích (nếu cần)
+ipcMain.on('download:start', (event, downloadItem) => {
+  // Chuyển sang sử dụng hàng chờ
+  const id = Date.now() + Math.random();
+  const queueItem = {
+    id,
+    ...downloadItem,
+    status: 'pending',
+    addedAt: new Date().toISOString()
+  };
+  downloadQueue.push(queueItem);
+  updateQueueStatus();
+  
+  // Nếu chưa đang download, bắt đầu download ngay
+  if (!isDownloading) {
+    processNextDownload();
+  }
 });
 
 ipcMain.on('quit_and_install', () => {

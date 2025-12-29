@@ -48,6 +48,7 @@ function App() {
   const [log, setLog] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
   const logEndRef = useRef(null);
+  const logContainerRef = useRef(null);
 
   const [quality, setQuality] = useState('1080p');
   const [downloadThumbnail, setDownloadThumbnail] = useState(true);
@@ -60,12 +61,40 @@ function App() {
   const [modalMessage, setModalMessage] = useState('');
   const [showLogModal, setShowLogModal] = useState(false);
   const [notify, setNotify] = useState(null);
+  
+  // Queue state
+  const [queue, setQueue] = useState([]);
+  const [currentDownloadId, setCurrentDownloadId] = useState(null);
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Chỉ scroll nếu người dùng đang ở gần cuối log area
+    if (logContainerRef.current) {
+      const container = logContainerRef.current;
+      const scrollTop = container.scrollTop;
+      const scrollHeight = container.scrollHeight;
+      const clientHeight = container.clientHeight;
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100; // Trong vòng 100px từ cuối
+      
+      // Chỉ scroll nếu đang ở gần cuối (người dùng đang xem log mới nhất)
+      if (isNearBottom) {
+        // Scroll đến cuối container, không scroll cả window
+        container.scrollTop = scrollHeight;
+      }
+    }
   }, [log]);
 
   useEffect(() => {
+    // Load initial queue status
+    window.electronAPI.getQueueStatus().then(status => {
+      setQueue(status.queue || []);
+      setIsDownloading(status.isDownloading || false);
+      setCurrentDownloadId(status.currentDownloadId || null);
+    });
+
+    const removeClearLogListener = window.electronAPI.onDownloadClearLog(() => {
+      setLog(''); // Xóa log khi bắt đầu download mới
+    });
+
     const removeLogListener = window.electronAPI.onDownloadLog((message) => {
       setLog(prevLog => prevLog + message);
       
@@ -89,12 +118,18 @@ function App() {
       }
     });
 
-    const removeFinishedListener = window.electronAPI.onDownloadFinished(() => {
+    const removeFinishedListener = window.electronAPI.onDownloadFinished((data) => {
       setNotify({
         title: "Tải xong",
         message: "File đã được tải thành công!",
         actions: [{ label: "OK", onClick: () => setNotify(null), primary: true }]
       });
+    });
+
+    const removeQueueStatusListener = window.electronAPI.onQueueStatus((status) => {
+      setQueue(status.queue || []);
+      setIsDownloading(status.isDownloading || false);
+      setCurrentDownloadId(status.currentDownloadId || null);
     });
 
     const removeUpdateAvailableListener = window.electronAPI.onUpdateAvailable(() => {
@@ -117,8 +152,10 @@ function App() {
     });
 
     return () => {
+      removeClearLogListener();
       removeLogListener();
       removeFinishedListener();
+      removeQueueStatusListener();
       removeUpdateAvailableListener();
       removeUpdateDownloadedListener();
     };
@@ -129,17 +166,53 @@ function App() {
     if (path) setSavePath(path);
   };
 
-  const handleDownload = () => {
+  const handleAddToQueue = () => {
     if (!url || !savePath) {
       alert('Vui lòng nhập link video và chọn nơi lưu file.');
       return;
     }
-    setLog('Bắt đầu quá trình tải...\n');
-    setIsDownloading(true);
     
-    window.electronAPI.startDownload({
+    window.electronAPI.addToQueue({
       url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath, downloadFormat
     });
+    
+    // Xóa URL sau khi thêm vào hàng chờ (giữ lại để có thể thêm link khác)
+    setUrl('');
+  };
+
+  const handleRemoveFromQueue = (id) => {
+    window.electronAPI.removeFromQueue(id);
+  };
+
+  const handleRetryDownload = (id) => {
+    window.electronAPI.retryDownload(id);
+  };
+
+  const handleClearQueue = () => {
+    if (confirm('Bạn có chắc muốn xóa tất cả các link trong hàng chờ?')) {
+      window.electronAPI.clearQueue();
+      setLog('');
+    }
+  };
+
+  const getStatusText = (status) => {
+    switch(status) {
+      case 'pending': return 'Đang chờ';
+      case 'downloading': return 'Đang tải...';
+      case 'completed': return 'Hoàn thành';
+      case 'failed': return 'Thất bại';
+      default: return status;
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch(status) {
+      case 'pending': return '#888';
+      case 'downloading': return '#4a90e2';
+      case 'completed': return '#4caf50';
+      case 'failed': return '#f44336';
+      default: return '#888';
+    }
   };
 
   const handleAddCookieFile = async (isRetry = false) => {
@@ -173,7 +246,12 @@ function App() {
       
       <div className="input-group">
         <label htmlFor="url-input">Link Video:</label>
-        <input id="url-input" type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Dán link hoặc dùng extension trên trình duyệt" disabled={isDownloading}/>
+        <div className="url-input-container">
+          <input id="url-input" type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Dán link hoặc dùng extension trên trình duyệt" onKeyPress={(e) => { if (e.key === 'Enter') handleAddToQueue(); }}/>
+          <button onClick={handleAddToQueue} className="add-queue-btn" disabled={!url || !savePath}>
+            Thêm vào hàng chờ
+          </button>
+        </div>
       </div>
       <div className="input-group">
         <label htmlFor="save-path-input">Lưu vào:</label>
@@ -194,8 +272,8 @@ function App() {
         {downloadFormat === 'video' && (
           <div className="input-group">
             <label htmlFor="quality-select">Chất lượng Video:</label>
-            <input id="quality-select" type="text" value="1080p" readOnly disabled={isDownloading} style={{opacity: 0.7, cursor: 'not-allowed'}}/>
-            <small style={{display: 'block', marginTop: '4px', color: '#666', fontSize: '12px'}}>Chỉ tải video 1080p</small>
+            <input id="quality-select" type="text" value="1080p (ưu tiên) / 720p / Tốt nhất" readOnly disabled={isDownloading} style={{opacity: 0.7, cursor: 'not-allowed'}}/>
+            <small style={{display: 'block', marginTop: '4px', color: '#666', fontSize: '12px'}}>Ưu tiên 1080p, nếu không có thì 720p, nếu không có thì tải chất lượng cao nhất có sẵn</small>
           </div>
         )}
 
@@ -213,7 +291,53 @@ function App() {
             </button>
         </div>
       </div>
-      <button className="download-btn" onClick={handleDownload} disabled={isDownloading}>{isDownloading ? 'ĐANG TẢI...' : 'BẮT ĐẦU TẢI'}</button>
+      {/* Queue Display */}
+      {queue.length > 0 && (
+        <div className="queue-container">
+          <div className="queue-header">
+            <h2>Hàng chờ download ({queue.length})</h2>
+            <button onClick={handleClearQueue} className="clear-queue-btn" disabled={isDownloading}>
+              Xóa tất cả
+            </button>
+          </div>
+          <div className="queue-list">
+            {queue.map((item) => (
+              <div key={item.id} className={`queue-item ${item.id === currentDownloadId ? 'active' : ''}`}>
+                <div className="queue-item-info">
+                  <div className="queue-item-url" title={item.url}>
+                    {item.url.length > 60 ? item.url.substring(0, 60) + '...' : item.url}
+                  </div>
+                  <div className="queue-item-meta">
+                    <span className="queue-status" style={{ color: getStatusColor(item.status) }}>
+                      {getStatusText(item.status)}
+                    </span>
+                    <span className="queue-format">{item.downloadFormat === 'mp3' ? 'MP3' : 'Video'}</span>
+                  </div>
+                </div>
+                <div className="queue-item-actions">
+                  {item.status === 'failed' && (
+                    <button 
+                      onClick={() => handleRetryDownload(item.id)} 
+                      className="retry-queue-btn"
+                      title="Tải lại"
+                    >
+                      ↻
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => handleRemoveFromQueue(item.id)} 
+                    className="remove-queue-btn"
+                    disabled={item.status === 'downloading'}
+                    title={item.status === 'downloading' ? 'Không thể xóa khi đang tải' : 'Xóa khỏi hàng chờ'}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       
       <div className="log-area">
         <div className="log-header">
@@ -222,8 +346,10 @@ function App() {
             Xem chi tiết
           </button>
         </div>
-        <pre>{log}</pre>
-        <div ref={logEndRef} />
+        <pre ref={logContainerRef}>
+          {log}
+          <div ref={logEndRef} />
+        </pre>
       </div>
     </div>
   );

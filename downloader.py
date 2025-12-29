@@ -178,6 +178,13 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     print(f"STATUS: Bắt đầu xử lý URL: {url}")
     print(f"STATUS: Sẽ lưu file vào: {save_path}")
 
+    # Làm sạch URL TikTok để tránh query thừa gây lỗi extractor
+    sanitized_url = url
+    if 'tiktok.com' in url:
+        sanitized_url = url.split('?', 1)[0]
+        if sanitized_url != url:
+            print(f"STATUS: Đã làm sạch URL TikTok: {sanitized_url}")
+
     yt_dlp_exe_path = os.path.abspath(os.path.join(resources_path, 'yt-dlp.exe'))
     
     if not os.path.exists(yt_dlp_exe_path):
@@ -207,6 +214,8 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         yt_dlp_exe_path,
         '--impersonate', 'chrome',
         '--no-update',  # Tắt cảnh báo cập nhật để tránh spam log
+        # Ép sử dụng downloader nội bộ của yt-dlp (tránh dùng curl/wget bên ngoài nếu có cấu hình global)
+        '--downloader', 'native',
         # Tăng tốc độ tải bằng cách tải xuống nhiều fragment cùng lúc
         '--concurrent-fragments', '5',
         # Thêm các tùy chọn thử lại để tăng độ ổn định
@@ -236,8 +245,13 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             '--windows-filenames',  # Chỉ loại bỏ ký tự không hợp lệ trên Windows, giữ tên gần với tên gốc
         ])
     else:
-        # Chỉ tải 1080p, không có fallback
-        format_selection = "bestvideo[height=1080]+bestaudio/best[height=1080]"
+        # Ưu tiên 1080p, nếu không có thì tải 720p, nếu không có thì tải chất lượng cao nhất có sẵn
+        # Format string này sẽ:
+        # 1. Ưu tiên bestvideo+bestaudio có height <= 1080 và >= 720 (yt-dlp sẽ tự chọn 1080p nếu có)
+        # 2. Nếu không có, thử best có height <= 1080 và >= 720
+        # 3. Fallback xuống 720p chính xác nếu không có 1080p
+        # 4. Nếu không có cả 1080p và 720p, tải chất lượng cao nhất có sẵn (best)
+        format_selection = "bestvideo[height<=1080][height>=720]+bestaudio[asr>=44100]/best[height<=1080][height>=720]/bestvideo[height=720]+bestaudio/best[height=720]/bestvideo+bestaudio/best"
 
         command.extend([
             '-f', format_selection,
@@ -252,11 +266,29 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     if thumbnail:
         command.extend(['--write-thumbnail', '--embed-thumbnail'])
 
+    # Tăng khả năng thành công với TikTok: header mobile + player_client mobile + IPv4 + download_api
+    if 'tiktok.com' in sanitized_url:
+        command.extend([
+            # yt-dlp yêu cầu --add-headers (số nhiều) cho từng header
+            '--add-headers', 'Referer:https://www.tiktok.com/',
+            '--add-headers', 'User-Agent:Mozilla/5.0 (Linux; Android 12; SM-G996B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            '--add-headers', 'Accept-Language:en-US,en;q=0.9',
+            '--add-headers', 'Sec-Fetch-Site:same-origin',
+            '--add-headers', 'Sec-Fetch-Mode:navigate',
+            '--add-headers', 'Sec-Fetch-Dest:document',
+            # Bật API mobile để TikTok trả metadata + URL tải
+            '--extractor-args', 'tiktok:player_client=android,app_info=1,download_api=1',
+            '--force-ipv4',
+            '--geo-bypass',
+            # Giữ nguyên extractor TikTok (không ép generic) để tránh lỗi Unsupported URL
+            '--no-check-certificate',
+        ])
+
     if cookies_path and os.path.exists(cookies_path):
         print(f"STATUS: Sử dụng file cookies từ: {cookies_path}")
         command.extend(['--cookies', cookies_path])
 
-    command.append(url)
+    command.append(sanitized_url)
 
     print("STATUS: Đang thực thi yt-dlp...", flush=True)
 
@@ -291,11 +323,73 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         # Kiểm tra các loại lỗi phổ biến
         output_text = '\n'.join(output_lines).lower()
         output_text_original = '\n'.join(output_lines)  # Giữ nguyên để in ra
+
+        # Fallback riêng cho TikTok nếu gặp lỗi "Video not available" / status code 0
+        if 'tiktok.com' in sanitized_url and ('video not available' in output_text or 'status code 0' in output_text):
+            print("\n⚠️  TikTok trả về lỗi video not available/status 0. Đang thử lại với cấu hình fallback...")
+            tiktok_fallback_cmd = [
+                yt_dlp_exe_path,
+                '--add-headers', 'Referer:https://www.tiktok.com/',
+                '--add-headers', 'User-Agent:Mozilla/5.0 (Linux; Android 12; SM-G996B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+                '--add-headers', 'Accept-Language:en-US,en;q=0.9',
+                '--add-headers', 'Origin:https://www.tiktok.com',
+                '--add-headers', 'Sec-Fetch-Site:same-origin',
+                '--add-headers', 'Sec-Fetch-Mode:navigate',
+                '--add-headers', 'Sec-Fetch-Dest:document',
+                '--extractor-args', 'tiktok:player_client=android,app_info=1,download_api=1',
+                '--compat-options', 'tiktok-embed',  # thử thêm embed fallback
+                '--force-ipv4',
+                '--geo-bypass',
+                '--no-check-certificate',
+                '--merge-output-format', 'mp4',
+                '-o', output_template,
+            ]
+            if thumbnail:
+                tiktok_fallback_cmd.extend(['--write-thumbnail', '--embed-thumbnail'])
+            if cookies_path and os.path.exists(cookies_path):
+                tiktok_fallback_cmd.extend(['--cookies', cookies_path])
+            # Giữ định dạng ưu tiên 1080p/720p
+            tiktok_fallback_cmd.extend(['-f', format_selection])
+            tiktok_fallback_cmd.append(sanitized_url)
+
+            fb_process = subprocess.Popen(
+                tiktok_fallback_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                env=env
+            )
+            fb_output = []
+            for line in iter(fb_process.stdout.readline, ''):
+                line = line.strip()
+                if line:
+                    print(line, flush=True)
+                    fb_output.append(line)
+            fb_process.wait()
+
+            if fb_process.returncode == 0:
+                print("SUCCESS: TikTok đã tải thành công với cấu hình fallback!")
+                return 0
+            else:
+                print("WARNING: Fallback TikTok vẫn thất bại.")
+                output_lines.extend(fb_output)
         
         # Kiểm tra lỗi: chỉ có ảnh (thumbnail) có sẵn
         has_only_images = 'only images are available' in output_text
         has_format_error = 'requested format is not available' in output_text
         has_challenge_failed = 'challenge solving failed' in output_text
+        
+        # Kiểm tra lỗi: video không có format nào phù hợp (chỉ có thumbnail)
+        # Lưu ý: Với fallback "best" ở cuối, lỗi "requested format is not available" 
+        # chỉ xảy ra khi video thực sự không có format video nào (chỉ có thumbnail)
+        if has_format_error and not has_only_images:
+            print("\n⚠️  LỖI: Video này không có format video phù hợp có sẵn.")
+            print("⚠️  Ứng dụng đã thử tải 1080p (ưu tiên), 720p (fallback), và chất lượng cao nhất có sẵn.")
+            print("💡 GỢI Ý: Video này có thể chỉ có thumbnail hoặc không có format video nào.")
+            return process.returncode
         
         # Kích hoạt fallback nếu có "only images" hoặc "requested format is not available" 
         # (thường đi kèm với "only images" trong trường hợp này)
