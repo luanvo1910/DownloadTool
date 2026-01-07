@@ -37,13 +37,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   onUpdateAvailable: (callback) => {
-    const listener = () => callback();
+    const listener = (_event, info) => callback(info);
     ipcRenderer.on('update_available', listener);
     return () => ipcRenderer.removeListener('update_available', listener);
   },
 
   onUpdateDownloaded: (callback) => {
-    const listener = () => callback();
+    const listener = (_event, info) => callback(info);
     ipcRenderer.on('update_downloaded', listener);
     return () => ipcRenderer.removeListener('update_downloaded', listener);
   },

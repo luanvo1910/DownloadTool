@@ -100,15 +100,18 @@ ipcMain.on('queue:retry', (event, id) => {
   }
 });
 
-// Xóa tất cả download khỏi hàng chờ
+// Xóa các download đã hoàn thành/thất bại khỏi hàng chờ,
+// giữ lại các video đang chờ hoặc đang tải
 ipcMain.on('queue:clear', () => {
-  if (currentDownloadProcess) {
-    currentDownloadProcess.kill();
-    currentDownloadProcess = null;
+  downloadQueue = downloadQueue.filter(item => item.status === 'pending' || item.status === 'downloading');
+
+  // Nếu currentDownloadId không còn trong queue (trường hợp hiếm), reset trạng thái
+  const hasCurrent = downloadQueue.some(item => item.id === currentDownloadId);
+  if (!hasCurrent) {
+    currentDownloadId = null;
+    isDownloading = false;
   }
-  downloadQueue = [];
-  isDownloading = false;
-  currentDownloadId = null;
+
   updateQueueStatus();
 });
 
@@ -152,6 +155,9 @@ function processNextDownload() {
   if (nextItem.downloadThumbnail) args.push('--thumbnail');
   if (nextItem.ignorePlaylist) args.push('--no-playlist');
   if (nextItem.cookiesPath) args.push('--cookies-path', nextItem.cookiesPath);
+  if (nextItem.audioLang && nextItem.audioLang !== 'auto') {
+    args.push('--audio-lang', nextItem.audioLang);
+  }
 
   currentDownloadProcess = spawn(downloaderExe, args);
   const sendLog = (data) => {
@@ -239,10 +245,16 @@ app.whenReady().then(() => {
   autoUpdater.checkForUpdatesAndNotify();
 });
 
-autoUpdater.on('update-available', () => {
-  mainWindow.webContents.send('update_available');
+autoUpdater.on('update-available', (info) => {
+  // Gửi đầy đủ thông tin bản cập nhật xuống renderer (version, releaseName, releaseNotes, ...)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update_available', info);
+  }
 });
 
-autoUpdater.on('update-downloaded', () => {
-  mainWindow.webContents.send('update_downloaded');
+autoUpdater.on('update-downloaded', (info) => {
+  // Khi tải xong, tiếp tục gửi info để renderer hiển thị tên phiên bản
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update_downloaded', info);
+  }
 });

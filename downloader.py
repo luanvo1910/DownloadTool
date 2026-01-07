@@ -199,7 +199,7 @@ def detect_platform(url: str) -> str:
     return 'generic'
 
 
-def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_playlist, download_format):
+def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_playlist, download_format, audio_lang):
     print(f"Bắt đầu quá trình tải...")
     print(f"STATUS: Bắt đầu xử lý URL: {url}")
     print(f"STATUS: Sẽ lưu file vào: {save_path}")
@@ -228,6 +228,11 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     # Sử dụng .200s để giữ được tên dài hơn, và yt-dlp sẽ tự động xử lý các ký tự không hợp lệ
     # %(id)s là ID video YouTube (ví dụ: VrSQdgJU3fY) - giúp tránh trùng tên khi nhiều video có cùng tiêu đề
     output_template = os.path.join(save_path, '%(title).200s.%(ext)s')
+
+    # Chuẩn hóa mã ngôn ngữ audio (ví dụ: 'auto', 'ja', 'ko', 'en')
+    audio_lang = (audio_lang or '').strip().lower()
+    if audio_lang == '' or audio_lang == 'auto':
+        audio_lang = None
 
     # Kiểm tra và sử dụng JS runtime (ưu tiên Deno, sau đó Node)
     js_runtime_type, js_runtime_path, js_prepend = ensure_js_runtime()
@@ -264,6 +269,14 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             '--extractor-args',
             'youtube:player_client=ios,tv_embedded,web_embedded,web,android',
         ])
+        # Chỉ tải audio/subtitle gốc, không tải auto-translated
+        # Loại bỏ auto-generated subtitles
+        # YouTube thường chỉ có một audio track (gốc), yt-dlp sẽ tự động chọn audio gốc
+        command.extend([
+            '--no-write-auto-subs',  # Không tải auto-generated subtitles
+            # Không chỉ định Accept-Language để YouTube tự động trả về audio gốc
+            # yt-dlp sẽ tự động chọn audio track tốt nhất (thường là gốc) khi sử dụng bestaudio
+        ])
 
     if js_runtime_type == 'deno':
         # Deno được enable by default, nhưng có thể chỉ định path nếu cần
@@ -273,8 +286,14 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         command.extend(['--js-runtimes', 'node'])
 
     if download_format.lower() == 'mp3':
+        # Ưu tiên audio gốc hoặc audio theo ngôn ngữ người dùng chọn (nếu có metadata language)
+        # Nếu có audio_lang, thử chọn bestaudio với language đó trước, rồi fallback về bestaudio/best
+        if audio_lang:
+            audio_format_selector = f"bestaudio[language={audio_lang}]/bestaudio/best"
+        else:
+            audio_format_selector = "bestaudio/best"
         command.extend([
-            '-f', 'bestaudio',
+            '-f', audio_format_selector,
             '--extract-audio',
             '--audio-format', 'mp3',
             '--audio-quality', '0',
@@ -284,8 +303,10 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         ])
     else:
         # Format selection ưu tiên chất lượng cao nhất với bitrate cao
+        # Ưu tiên audio gốc: bestaudio sẽ tự động chọn audio track đầu tiên (thường là gốc)
+        # Với YouTube, audio gốc thường là track đầu tiên trong danh sách format
         # Ưu tiên thứ tự:
-        # 1. bestvideo có height >= 720p + bestaudio (chất lượng cao nhất)
+        # 1. bestvideo có height >= 720p + bestaudio (chất lượng cao nhất, audio gốc)
         # 2. bestvideo có height >= 480p + bestaudio (fallback nếu không có 720p+)
         # 3. best có height >= 720p (single file chất lượng cao)
         # 4. best có height >= 480p (fallback)
@@ -294,7 +315,19 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         # Loại bỏ format quá thấp (dưới 480p như format 18-360p) bằng cách reject chúng
         # Format 18 là 360p, format 22 là 720p, format 137+140 là 1080p
         # Reject format 18 và các format thấp khác (dưới 480p)
-        format_selection = "bestvideo[height>=720]+bestaudio[asr>=44100]/bestvideo[height>=480]+bestaudio[asr>=44100]/best[height>=720]/best[height>=480]/bestvideo+bestaudio/best/-18/-36/-17/-5"
+        # Nếu người dùng chọn ngôn ngữ audio cụ thể, ưu tiên các format có language đó trước
+        if audio_lang:
+            format_selection = (
+                f"bestvideo[height>=720]+bestaudio[language={audio_lang}][asr>=44100]/"
+                f"bestvideo[height>=480]+bestaudio[language={audio_lang}][asr>=44100]/"
+                f"best[height>=720][language={audio_lang}]/"
+                f"best[height>=480][language={audio_lang}]/"
+                "bestvideo[height>=720]+bestaudio[asr>=44100]/"
+                "bestvideo[height>=480]+bestaudio[asr>=44100]/"
+                "best[height>=720]/best[height>=480]/bestvideo+bestaudio/best/-18/-36/-17/-5"
+            )
+        else:
+            format_selection = "bestvideo[height>=720]+bestaudio[asr>=44100]/bestvideo[height>=480]+bestaudio[asr>=44100]/best[height>=720]/best[height>=480]/bestvideo+bestaudio/best/-18/-36/-17/-5"
 
         command.extend([
             '-f', format_selection,
@@ -616,12 +649,22 @@ if __name__ == '__main__':
     parser.add_argument("--thumbnail", action='store_true')
     parser.add_argument("--no-playlist", action='store_true')
     parser.add_argument("--format", default='video', help="Định dạng tải: video hoặc mp3")
+    parser.add_argument("--audio-lang", default=None, help="Mã ngôn ngữ audio ưu tiên (vd: ja, ko, en, auto)")
 
     args = parser.parse_args()
 
     try:
-        exit_code = main(args.url, args.save_path, args.resources_path, args.cookies_path,
-                         args.quality, args.thumbnail, args.no_playlist, args.format)
+        exit_code = main(
+            args.url,
+            args.save_path,
+            args.resources_path,
+            args.cookies_path,
+            args.quality,
+            args.thumbnail,
+            args.no_playlist,
+            args.format,
+            args.audio_lang,
+        )
         sys.exit(exit_code)
         
     except Exception as e:

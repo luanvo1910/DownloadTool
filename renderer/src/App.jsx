@@ -54,6 +54,7 @@ function App() {
   const [downloadThumbnail, setDownloadThumbnail] = useState(true);
   const [ignorePlaylist, setIgnorePlaylist] = useState(true);
   const [downloadFormat, setDownloadFormat] = useState('video'); // State mới: 'video' hoặc 'mp3'
+  const [audioLang, setAudioLang] = useState('auto'); // 'auto', 'ja', 'ko', 'en', ...
   
   const [cookiesPath, setCookiesPath] = useState(null);
   const [cookieFileName, setCookieFileName] = useState('');
@@ -145,18 +146,24 @@ function App() {
       setCurrentDownloadId(status.currentDownloadId || null);
     });
 
-    const removeUpdateAvailableListener = window.electronAPI.onUpdateAvailable(() => {
+    const removeUpdateAvailableListener = window.electronAPI.onUpdateAvailable((info) => {
+      const versionLabel = info?.releaseName || `${info?.version || ''}`.trim();
       setNotify({
         title: "Có bản cập nhật mới",
-        message: "Ứng dụng sẽ tự động tải bản cập nhật trong nền.",
+        message: versionLabel
+          ? `Ứng dụng sẽ tự động tải bản cập nhật trong nền.\nPhiên bản mới: ${versionLabel}`
+          : "Ứng dụng sẽ tự động tải bản cập nhật trong nền.",
         actions: [{ label: "OK", onClick: () => setNotify(null), primary: true }]
       });
     });
 
-    const removeUpdateDownloadedListener = window.electronAPI.onUpdateDownloaded(() => {
+    const removeUpdateDownloadedListener = window.electronAPI.onUpdateDownloaded((info) => {
+      const versionLabel = info?.releaseName || `${info?.version || ''}`.trim();
       setNotify({
         title: "Cập nhật sẵn sàng",
-        message: "Bản cập nhật đã tải xong. Bạn có muốn khởi động lại để cài đặt?",
+        message: versionLabel
+          ? `Bản cập nhật "${versionLabel}" đã tải xong. Bạn có muốn khởi động lại để cài đặt?`
+          : "Bản cập nhật đã tải xong. Bạn có muốn khởi động lại để cài đặt?",
         actions: [
           { label: "Để sau", onClick: () => setNotify(null) },
           { label: "Khởi động lại", onClick: () => { window.electronAPI.quitAndInstall(); }, primary: true }
@@ -186,7 +193,14 @@ function App() {
     }
     
     window.electronAPI.addToQueue({
-      url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath, downloadFormat
+      url,
+      savePath,
+      quality,
+      downloadThumbnail,
+      ignorePlaylist,
+      cookiesPath,
+      downloadFormat,
+      audioLang,
     });
     
     // Xóa URL sau khi thêm vào hàng chờ (giữ lại để có thể thêm link khác)
@@ -241,7 +255,14 @@ function App() {
             setLog('Đã thêm cookies. Thử lại quá trình tải...\n');
             setIsDownloading(true);
             window.electronAPI.startDownload({
-              url, savePath, quality, downloadThumbnail, ignorePlaylist, cookiesPath: path, downloadFormat
+              url,
+              savePath,
+              quality,
+              downloadThumbnail,
+              ignorePlaylist,
+              cookiesPath: path,
+              downloadFormat,
+              audioLang,
             });
           }
         }, 100);
@@ -290,32 +311,50 @@ function App() {
         <label htmlFor="save-path-input">Lưu vào:</label>
         <div className="path-container">
           <input id="save-path-input" type="text" value={savePath} readOnly placeholder="Chọn thư mục để lưu file..."/>
-          <button onClick={handleSelectDirectory} disabled={isDownloading}>Chọn Thư Mục</button>
+          <button onClick={handleSelectDirectory}>Chọn Thư Mục</button>
         </div>
       </div>
       <div className="options-container">
         <div className="input-group">
           <label htmlFor="format-select">Định dạng:</label>
-          <select id="format-select" value={downloadFormat} onChange={(e) => setDownloadFormat(e.target.value)} disabled={isDownloading}>
+          <select id="format-select" value={downloadFormat} onChange={(e) => setDownloadFormat(e.target.value)}>
             <option value="video">Video (MP4)</option>
             <option value="mp3">Chỉ Âm thanh (MP3)</option>
           </select>
         </div>
 
+        <div className="input-group">
+          <label htmlFor="audio-lang-select">Ưu tiên ngôn ngữ audio:</label>
+          <select
+            id="audio-lang-select"
+            value={audioLang}
+            onChange={(e) => setAudioLang(e.target.value)}
+          >
+            <option value="auto">Tự động (theo video / YouTube)</option>
+            <option value="ja">Japanese (ja)</option>
+            <option value="ko">Korean (ko)</option>
+            <option value="en">English (en)</option>
+          </select>
+          <small style={{ display: 'block', marginTop: '4px', color: '#666', fontSize: '12px' }}>
+            Nếu video có nhiều track audio, ứng dụng sẽ ưu tiên track đúng mã ngôn ngữ này. Nếu không có, sẽ tự
+            động chọn audio tốt nhất như bình thường.
+          </small>
+        </div>
+
         {downloadFormat === 'video' && (
           <div className="input-group">
             <label htmlFor="quality-select">Chất lượng Video:</label>
-            <input id="quality-select" type="text" value="1080p (ưu tiên) / 720p / Tốt nhất" readOnly disabled={isDownloading} style={{opacity: 0.7, cursor: 'not-allowed'}}/>
+            <input id="quality-select" type="text" value="1080p (ưu tiên) / 720p / Tốt nhất" readOnly style={{opacity: 0.7, cursor: 'not-allowed'}}/>
             <small style={{display: 'block', marginTop: '4px', color: '#666', fontSize: '12px'}}>Ưu tiên 1080p, nếu không có thì 720p, nếu không có thì tải chất lượng cao nhất có sẵn</small>
           </div>
         )}
 
         <div className="checkbox-group">
-          <input type="checkbox" id="thumbnail-checkbox" checked={downloadThumbnail} onChange={(e) => setDownloadThumbnail(e.target.checked)} disabled={isDownloading}/>
+          <input type="checkbox" id="thumbnail-checkbox" checked={downloadThumbnail} onChange={(e) => setDownloadThumbnail(e.target.checked)}/>
           <label htmlFor="thumbnail-checkbox">Tải cả ảnh bìa (Thumbnail)</label>
         </div>
         <div className="checkbox-group">
-          <input type="checkbox" id="playlist-checkbox" checked={ignorePlaylist} onChange={(e) => setIgnorePlaylist(e.target.checked)} disabled={isDownloading}/>
+          <input type="checkbox" id="playlist-checkbox" checked={ignorePlaylist} onChange={(e) => setIgnorePlaylist(e.target.checked)}/>
           <label htmlFor="playlist-checkbox">Chỉ tải 1 video (bỏ qua playlist)</label>
         </div>
         <div className="cookie-group">
@@ -329,8 +368,8 @@ function App() {
         <div className="queue-container">
           <div className="queue-header">
             <h2>Hàng chờ download ({queue.length})</h2>
-            <button onClick={handleClearQueue} className="clear-queue-btn" disabled={isDownloading}>
-              Xóa tất cả
+            <button onClick={handleClearQueue} className="clear-queue-btn">
+              Xóa đã xong
             </button>
           </div>
           <div className="queue-list">
