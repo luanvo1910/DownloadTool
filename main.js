@@ -145,21 +145,38 @@ function processNextDownload() {
   mainWindow.webContents.send('download:log', `========== Bắt đầu tải: ${nextItem.url} ==========\n`);
 
   const downloaderExe = path.join(resourcesPath, 'downloader.exe');
-  const args = [
+  const baseArgs = [
       '--url', nextItem.url,
       '--save-path', nextItem.savePath,
       '--resources-path', resourcesPath,
       '--quality', nextItem.quality,
       '--format', nextItem.downloadFormat
   ];
-  if (nextItem.downloadThumbnail) args.push('--thumbnail');
-  if (nextItem.ignorePlaylist) args.push('--no-playlist');
-  if (nextItem.cookiesPath) args.push('--cookies-path', nextItem.cookiesPath);
+  if (nextItem.downloadThumbnail) baseArgs.push('--thumbnail');
+  if (nextItem.ignorePlaylist) baseArgs.push('--no-playlist');
+  if (nextItem.cookiesPath) baseArgs.push('--cookies-path', nextItem.cookiesPath);
   if (nextItem.audioLang && nextItem.audioLang !== 'auto') {
-    args.push('--audio-lang', nextItem.audioLang);
+    baseArgs.push('--audio-lang', nextItem.audioLang);
   }
 
-  currentDownloadProcess = spawn(downloaderExe, args);
+  // Trong chế độ dev (npm start), chạy trực tiếp downloader.py bằng Python
+  // để luôn dùng phiên bản mã nguồn mới nhất mà không cần build lại downloader.exe.
+  let command;
+  let args;
+  let spawnOptions = {};
+
+  if (!app.isPackaged) {
+    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    command = pythonCmd;
+    args = [path.join(__dirname, 'downloader.py'), ...baseArgs];
+    spawnOptions = { cwd: __dirname };
+  } else {
+    command = downloaderExe;
+    args = baseArgs;
+    spawnOptions = {};
+  }
+
+  currentDownloadProcess = spawn(command, args, spawnOptions);
   const sendLog = (data) => {
     mainWindow.webContents.send('download:log', data.toString());
   };

@@ -379,42 +379,45 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     tiktok_uses_browser_cookies = False
     douyin_uses_browser_cookies = False
     if 'tiktok.com' in sanitized_url:
-        # Ưu tiên sử dụng cookies từ trình duyệt (tự động lấy từ Chrome/Edge)
-        # yt-dlp sẽ tự động thử các trình duyệt theo thứ tự: chrome, edge, brave, opera, vivaldi
-        print("STATUS: TikTok yêu cầu cookies. Đang tự động lấy cookies từ trình duyệt...")
-        # Thử Chrome trước (phổ biến nhất), sau đó Edge
-        browsers_to_try = ['chrome', 'edge', 'brave', 'opera']
-        browser_found = False
-        for browser in browsers_to_try:
-            try:
-                # Kiểm tra xem trình duyệt có tồn tại không bằng cách kiểm tra profile path
-                # Trên Windows, Chrome/Edge thường ở AppData\Local
-                if browser == 'chrome':
-                    # Chrome profile path thường ở LOCALAPPDATA\Google\Chrome\User Data
-                    chrome_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data')
-                    if os.path.exists(chrome_path):
-                        print(f"STATUS: Tìm thấy Chrome. Sử dụng cookies từ Chrome...")
-                        command.extend(['--cookies-from-browser', 'chrome'])
-                        tiktok_uses_browser_cookies = True
-                        browser_found = True
-                        break
-                elif browser == 'edge':
-                    # Edge profile path thường ở LOCALAPPDATA\Microsoft\Edge\User Data
-                    edge_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'User Data')
-                    if os.path.exists(edge_path):
-                        print(f"STATUS: Tìm thấy Edge. Sử dụng cookies từ Edge...")
-                        command.extend(['--cookies-from-browser', 'edge'])
-                        tiktok_uses_browser_cookies = True
-                        browser_found = True
-                        break
-            except Exception:
-                continue
-        
-        # Nếu không tìm thấy trình duyệt nào, vẫn thử dùng chrome (yt-dlp sẽ tự xử lý)
-        if not browser_found:
-            print("STATUS: Thử sử dụng cookies từ Chrome (yt-dlp sẽ tự động xử lý)...")
-            command.extend(['--cookies-from-browser', 'chrome'])
-            tiktok_uses_browser_cookies = True
+        # Nếu người dùng ĐÃ cung cấp cookies file cho TikTok, ưu tiên dùng file đó
+        # và KHÔNG cố lấy thêm cookies từ trình duyệt để tránh bug PermissionError của yt-dlp.
+        has_tiktok_cookies_file = bool(cookies_path and os.path.exists(cookies_path))
+        if not has_tiktok_cookies_file:
+            # Chỉ auto lấy cookies từ trình duyệt khi không có cookies.txt
+            print("STATUS: TikTok yêu cầu cookies. Đang tự động lấy cookies từ trình duyệt...")
+            # Thử Chrome trước (phổ biến nhất), sau đó Edge
+            browsers_to_try = ['chrome', 'edge', 'brave', 'opera']
+            browser_found = False
+            for browser in browsers_to_try:
+                try:
+                    # Kiểm tra xem trình duyệt có tồn tại không bằng cách kiểm tra profile path
+                    # Trên Windows, Chrome/Edge thường ở AppData\Local
+                    if browser == 'chrome':
+                        # Chrome profile path thường ở LOCALAPPDATA\Google\Chrome\User Data
+                        chrome_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data')
+                        if os.path.exists(chrome_path):
+                            print(f"STATUS: Tìm thấy Chrome. Sử dụng cookies từ Chrome...")
+                            command.extend(['--cookies-from-browser', 'chrome'])
+                            tiktok_uses_browser_cookies = True
+                            browser_found = True
+                            break
+                    elif browser == 'edge':
+                        # Edge profile path thường ở LOCALAPPDATA\Microsoft\Edge\User Data
+                        edge_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'User Data')
+                        if os.path.exists(edge_path):
+                            print(f"STATUS: Tìm thấy Edge. Sử dụng cookies từ Edge...")
+                            command.extend(['--cookies-from-browser', 'edge'])
+                            tiktok_uses_browser_cookies = True
+                            browser_found = True
+                            break
+                except Exception:
+                    continue
+            
+            # Nếu không tìm thấy trình duyệt nào, vẫn thử dùng chrome (yt-dlp sẽ tự xử lý)
+            if not browser_found:
+                print("STATUS: Thử sử dụng cookies từ Chrome (yt-dlp sẽ tự động xử lý)...")
+                command.extend(['--cookies-from-browser', 'chrome'])
+                tiktok_uses_browser_cookies = True
         
         command.extend([
             # yt-dlp yêu cầu --add-headers (số nhiều) cho từng header
@@ -563,7 +566,8 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             return retry_cmd
 
         # YouTube: lỗi "Watch video on YouTube" (code 152-18) thường yêu cầu đăng nhập/xác thực.
-        # Tự động retry bằng cookies từ trình duyệt (Edge/Chrome) nếu người dùng chưa cung cấp cookies file.
+        # Tự động retry bằng cookies từ trình duyệt (Edge/Chrome), kể cả khi đã có cookies file
+        # vì cookies file có thể không đủ quyền hoặc đã hết hạn.
         if platform == 'youtube':
             yt_unavailable_152 = ('error code: 152' in output_text) or ('watch video on youtube' in output_text)
             yt_auth_like = (
@@ -574,10 +578,10 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
                 ('video is unavailable' in output_text)
             )
 
-            has_cookies_file = bool(cookies_path and os.path.exists(cookies_path))
             has_browser_cookies = _has_arg('--cookies-from-browser')
 
-            if yt_auth_like and (not has_cookies_file) and (not has_browser_cookies):
+            # 1) Nếu chưa dùng --cookies-from-browser, thử tự động lấy từ Edge/Chrome
+            if yt_auth_like and (not has_browser_cookies):
                 edge_profile = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'User Data')
                 chrome_profile = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data')
 
@@ -612,6 +616,62 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
                     output_lines.extend(last_retry_out)
                     output_text = '\n'.join(output_lines).lower()
                     output_text_original = '\n'.join(output_lines)
+
+            # 2) Nếu sau tất cả vẫn còn lỗi 152-18, thử cấu hình YouTube đơn giản hơn (player_client=web, format=best)
+            #    Điều này giúp tránh các client embed/tv có thể bị chặn "Watch video on YouTube".
+            yt_unavailable_152 = ('error code: 152' in output_text) or ('watch video on youtube' in output_text)
+            if yt_unavailable_152:
+                print("\n⚠️  YouTube trả về lỗi 152-18 (Watch video on YouTube). Đang thử cấu hình fallback đơn giản hơn...", flush=True)
+                yt_fallback_cmd = [
+                    yt_dlp_exe_path,
+                    '--impersonate', 'chrome',
+                    '--no-update',
+                    '--downloader', 'native',
+                    '--concurrent-fragments', '5',
+                    '--retries', '10',
+                    '--fragment-retries', '10',
+                    '--merge-output-format', 'mp4',
+                    '-f', 'best',
+                    '-o', output_template,
+                    '--windows-filenames',
+                    '--extractor-args', 'youtube:player_client=web',
+                ]
+
+                # Ưu tiên dùng cookies file nếu có
+                if cookies_path and os.path.exists(cookies_path):
+                    yt_fallback_cmd.extend(['--cookies', cookies_path])
+                else:
+                    # Nếu không có cookies file, thử lại với cookies từ trình duyệt (Chrome/Edge)
+                    edge_profile = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'User Data')
+                    chrome_profile = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data')
+                    browsers = []
+                    if os.path.exists(chrome_profile):
+                        browsers.append('chrome')
+                    if os.path.exists(edge_profile):
+                        browsers.append('edge')
+                    if not browsers:
+                        browsers = ['chrome', 'edge']
+                    # Chỉ chọn browser đầu tiên cho fallback đơn giản
+                    yt_fallback_cmd.extend(['--cookies-from-browser', browsers[0]])
+
+                # Thêm JS runtime nếu có (giúp giải challenge)
+                if js_runtime_type == 'deno':
+                    yt_fallback_cmd.extend(['--js-runtimes', f'deno:{js_runtime_path}'])
+                elif js_runtime_type == 'node':
+                    yt_fallback_cmd.extend(['--js-runtimes', 'node'])
+                yt_fallback_cmd.extend(['--remote-components', 'ejs:github'])
+
+                yt_fallback_cmd.append(sanitized_url)
+
+                rc_fb, out_fb = _run_retry(yt_fallback_cmd, "Fallback YouTube: player_client=web, format=best")
+                if rc_fb == 0:
+                    print("\n✅ SUCCESS: YouTube đã tải thành công với cấu hình fallback đơn giản!", flush=True)
+                    return 0
+
+                # Nếu vẫn lỗi, bổ sung log để các nhánh chẩn đoán phía dưới có thông tin đầy đủ hơn
+                output_lines.extend(out_fb)
+                output_text = '\n'.join(output_lines).lower()
+                output_text_original = '\n'.join(output_lines)
 
         # Xử lý lỗi không thể copy cookie database từ Chrome (Chrome đang chạy)
         cookie_db_error = 'could not copy chrome cookie database' in output_text or 'could not copy edge cookie database' in output_text
