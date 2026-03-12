@@ -72,6 +72,7 @@ function App() {
     const u = rawUrl.toLowerCase();
     if (u.includes('youtube.com') || u.includes('youtu.be')) return 'YouTube';
     if (u.includes('tiktok.com')) return 'TikTok';
+    if (u.includes('douyin.com') || u.includes('iesdouyin.com')) return 'Douyin (抖音)';
     if (u.includes('instagram.com')) return 'Instagram';
     if (u.includes('twitter.com') || u.includes('x.com')) return 'Twitter / X';
     if (u.includes('facebook.com') || u.includes('fb.watch')) return 'Facebook';

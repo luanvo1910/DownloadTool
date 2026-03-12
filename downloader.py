@@ -173,10 +173,29 @@ def update_ytdlp(yt_dlp_exe_path):
         print("WARNING: Không thể cập nhật yt-dlp. Sẽ sử dụng phiên bản hiện có.")
         return yt_dlp_exe_path
 
+def normalize_douyin_url(url: str) -> str:
+    """
+    Chuẩn hóa URL Douyin: chuyển jingxuan?modal_id=XXX hoặc các dạng tương tự thành /video/XXX
+    vì yt-dlp cần URL dạng https://www.douyin.com/video/{aweme_id}
+    """
+    if 'douyin.com' not in url.lower():
+        return url
+    try:
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(url)
+        qs = parse_qs(parsed.query)
+        modal_id = (qs.get('modal_id') or qs.get('modal-id') or [None])[0]
+        if modal_id and modal_id.isdigit():
+            return f"https://www.douyin.com/video/{modal_id}"
+    except Exception:
+        pass
+    return url
+
+
 def detect_platform(url: str) -> str:
     """
     Xác định platform từ URL để áp dụng cấu hình phù hợp.
-    Trả về: 'youtube', 'tiktok', 'instagram', 'twitter', 'facebook', 'bilibili', 'vimeo', hoặc 'generic'
+    Trả về: 'youtube', 'tiktok', 'douyin', 'instagram', 'twitter', 'facebook', 'bilibili', 'vimeo', hoặc 'generic'
     """
     if not url:
         return 'generic'
@@ -186,6 +205,8 @@ def detect_platform(url: str) -> str:
         return 'youtube'
     if 'tiktok.com' in u:
         return 'tiktok'
+    if 'douyin.com' in u or 'iesdouyin.com' in u:
+        return 'douyin'
     if 'instagram.com' in u:
         return 'instagram'
     if 'twitter.com' in u or 'x.com' in u:
@@ -208,12 +229,17 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
     platform = detect_platform(url)
     print(f"STATUS: Phát hiện nền tảng: {platform}")
 
-    # Làm sạch URL TikTok để tránh query thừa gây lỗi extractor
+    # Chuẩn hóa URL theo từng platform
     sanitized_url = url
     if platform == 'tiktok':
         sanitized_url = url.split('?', 1)[0]
         if sanitized_url != url:
             print(f"STATUS: Đã làm sạch URL TikTok: {sanitized_url}")
+    elif platform == 'douyin':
+        normalized = normalize_douyin_url(url)
+        if normalized != url:
+            sanitized_url = normalized
+            print(f"STATUS: Đã chuyển URL Douyin sang dạng video: {sanitized_url}")
 
     yt_dlp_exe_path = os.path.abspath(os.path.join(resources_path, 'yt-dlp.exe'))
     
@@ -349,26 +375,110 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         command.extend(['--write-thumbnail'])
         # Không embed thumbnail để tránh lỗi, user có thể tự embed sau nếu cần
 
-    # Tăng khả năng thành công với TikTok: header mobile + player_client mobile + IPv4 + download_api
+    # Tăng khả năng thành công với TikTok/Douyin: header desktop + cookies từ trình duyệt
+    tiktok_uses_browser_cookies = False
+    douyin_uses_browser_cookies = False
     if 'tiktok.com' in sanitized_url:
+        # Ưu tiên sử dụng cookies từ trình duyệt (tự động lấy từ Chrome/Edge)
+        # yt-dlp sẽ tự động thử các trình duyệt theo thứ tự: chrome, edge, brave, opera, vivaldi
+        print("STATUS: TikTok yêu cầu cookies. Đang tự động lấy cookies từ trình duyệt...")
+        # Thử Chrome trước (phổ biến nhất), sau đó Edge
+        browsers_to_try = ['chrome', 'edge', 'brave', 'opera']
+        browser_found = False
+        for browser in browsers_to_try:
+            try:
+                # Kiểm tra xem trình duyệt có tồn tại không bằng cách kiểm tra profile path
+                # Trên Windows, Chrome/Edge thường ở AppData\Local
+                if browser == 'chrome':
+                    # Chrome profile path thường ở LOCALAPPDATA\Google\Chrome\User Data
+                    chrome_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data')
+                    if os.path.exists(chrome_path):
+                        print(f"STATUS: Tìm thấy Chrome. Sử dụng cookies từ Chrome...")
+                        command.extend(['--cookies-from-browser', 'chrome'])
+                        tiktok_uses_browser_cookies = True
+                        browser_found = True
+                        break
+                elif browser == 'edge':
+                    # Edge profile path thường ở LOCALAPPDATA\Microsoft\Edge\User Data
+                    edge_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'User Data')
+                    if os.path.exists(edge_path):
+                        print(f"STATUS: Tìm thấy Edge. Sử dụng cookies từ Edge...")
+                        command.extend(['--cookies-from-browser', 'edge'])
+                        tiktok_uses_browser_cookies = True
+                        browser_found = True
+                        break
+            except Exception:
+                continue
+        
+        # Nếu không tìm thấy trình duyệt nào, vẫn thử dùng chrome (yt-dlp sẽ tự xử lý)
+        if not browser_found:
+            print("STATUS: Thử sử dụng cookies từ Chrome (yt-dlp sẽ tự động xử lý)...")
+            command.extend(['--cookies-from-browser', 'chrome'])
+            tiktok_uses_browser_cookies = True
+        
         command.extend([
             # yt-dlp yêu cầu --add-headers (số nhiều) cho từng header
             '--add-headers', 'Referer:https://www.tiktok.com/',
-            '--add-headers', 'User-Agent:Mozilla/5.0 (Linux; Android 12; SM-G996B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-            '--add-headers', 'Accept-Language:en-US,en;q=0.9',
+            # Sử dụng User-Agent của Chrome desktop để giống trình duyệt hơn
+            '--add-headers', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            '--add-headers', 'Accept-Language:en-US,en;q=0.9,vi;q=0.8',
+            '--add-headers', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
             '--add-headers', 'Sec-Fetch-Site:same-origin',
             '--add-headers', 'Sec-Fetch-Mode:navigate',
             '--add-headers', 'Sec-Fetch-Dest:document',
-            # Bật API mobile để TikTok trả metadata + URL tải
-            '--extractor-args', 'tiktok:player_client=android,app_info=1,download_api=1',
+            '--add-headers', 'Sec-Fetch-User:?1',
+            '--add-headers', 'Upgrade-Insecure-Requests:1',
+            # Thử nhiều client khác nhau để tăng khả năng thành công
+            '--extractor-args', 'tiktok:player_client=web,android,ios',
             '--force-ipv4',
             '--geo-bypass',
-            # Giữ nguyên extractor TikTok (không ép generic) để tránh lỗi Unsupported URL
-            '--no-check-certificate',
         ])
 
-    if cookies_path and os.path.exists(cookies_path):
+    # Douyin (抖音): dùng cookies từ trình duyệt + headers tương tự TikTok
+    if 'douyin.com' in sanitized_url or 'iesdouyin.com' in sanitized_url:
+        print("STATUS: Douyin yêu cầu cookies. Đang tự động lấy cookies từ trình duyệt...")
+        browsers_to_try = ['chrome', 'edge', 'brave', 'opera']
+        browser_found = False
+        for browser in browsers_to_try:
+            try:
+                if browser == 'chrome':
+                    chrome_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data')
+                    if os.path.exists(chrome_path):
+                        print("STATUS: Tìm thấy Chrome. Sử dụng cookies từ Chrome...")
+                        command.extend(['--cookies-from-browser', 'chrome'])
+                        douyin_uses_browser_cookies = True
+                        browser_found = True
+                        break
+                elif browser == 'edge':
+                    edge_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'User Data')
+                    if os.path.exists(edge_path):
+                        print("STATUS: Tìm thấy Edge. Sử dụng cookies từ Edge...")
+                        command.extend(['--cookies-from-browser', 'edge'])
+                        douyin_uses_browser_cookies = True
+                        browser_found = True
+                        break
+            except Exception:
+                continue
+        if not browser_found:
+            print("STATUS: Thử sử dụng cookies từ Chrome (yt-dlp sẽ tự động xử lý)...")
+            command.extend(['--cookies-from-browser', 'chrome'])
+            douyin_uses_browser_cookies = True
+        command.extend([
+            '--add-headers', 'Referer:https://www.douyin.com/',
+            '--add-headers', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            '--add-headers', 'Accept-Language:zh-CN,zh;q=0.9,en;q=0.8',
+            '--add-headers', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            '--force-ipv4',
+            '--geo-bypass',
+        ])
+
+    # Nếu không dùng browser cookies (TikTok/Douyin), dùng cookies file nếu có
+    uses_browser_cookies = tiktok_uses_browser_cookies or douyin_uses_browser_cookies
+    if not uses_browser_cookies and cookies_path and os.path.exists(cookies_path):
         print(f"STATUS: Sử dụng file cookies từ: {cookies_path}")
+        command.extend(['--cookies', cookies_path])
+    elif ('tiktok.com' in sanitized_url or 'douyin.com' in sanitized_url or 'iesdouyin.com' in sanitized_url) and cookies_path and os.path.exists(cookies_path):
+        print(f"STATUS: Sử dụng thêm file cookies từ: {cookies_path} (fallback)")
         command.extend(['--cookies', cookies_path])
 
     command.append(sanitized_url)
@@ -407,28 +517,263 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
         output_text = '\n'.join(output_lines).lower()
         output_text_original = '\n'.join(output_lines)  # Giữ nguyên để in ra
 
+        def _has_arg(flag: str) -> bool:
+            try:
+                return flag in command
+            except Exception:
+                return False
+
+        def _run_retry(retry_command, title: str):
+            print(f"\n🔄 {title}...", flush=True)
+            retry_process = subprocess.Popen(
+                retry_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                env=env
+            )
+            retry_output = []
+            for ln in iter(retry_process.stdout.readline, ''):
+                ln = ln.strip()
+                if ln:
+                    print(ln, flush=True)
+                    retry_output.append(ln)
+            retry_process.wait()
+            return retry_process.returncode, retry_output
+
+        def _build_command_with_browser_cookies(browser_name: str):
+            # Tạo command mới: bỏ --cookies-from-browser cũ (nếu có), rồi thêm browser mới trước URL
+            retry_cmd = []
+            skip_next = False
+            for arg in command:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if arg == '--cookies-from-browser':
+                    skip_next = True
+                    continue
+                retry_cmd.append(arg)
+            # Chèn trước URL (URL là phần tử cuối cùng)
+            insert_pos = max(0, len(retry_cmd) - 1)
+            retry_cmd.insert(insert_pos, browser_name)
+            retry_cmd.insert(insert_pos, '--cookies-from-browser')
+            return retry_cmd
+
+        # YouTube: lỗi "Watch video on YouTube" (code 152-18) thường yêu cầu đăng nhập/xác thực.
+        # Tự động retry bằng cookies từ trình duyệt (Edge/Chrome) nếu người dùng chưa cung cấp cookies file.
+        if platform == 'youtube':
+            yt_unavailable_152 = ('error code: 152' in output_text) or ('watch video on youtube' in output_text)
+            yt_auth_like = (
+                yt_unavailable_152 or
+                ('confirm your age' in output_text) or
+                ('age-restricted' in output_text) or
+                ('this video is unavailable' in output_text) or
+                ('video is unavailable' in output_text)
+            )
+
+            has_cookies_file = bool(cookies_path and os.path.exists(cookies_path))
+            has_browser_cookies = _has_arg('--cookies-from-browser')
+
+            if yt_auth_like and (not has_cookies_file) and (not has_browser_cookies):
+                edge_profile = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'User Data')
+                chrome_profile = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data')
+
+                # Thử theo thứ tự: ưu tiên browser có profile tồn tại.
+                # Lưu ý: có profile chưa chắc có đăng nhập YouTube, nên sẽ thử cả 2 nếu cần.
+                candidates = []
+                if os.path.exists(edge_profile):
+                    candidates.append('edge')
+                if os.path.exists(chrome_profile):
+                    candidates.append('chrome')
+                if not candidates:
+                    candidates = ['edge', 'chrome']  # yt-dlp sẽ tự xử lý nếu không tìm thấy profile
+
+                last_retry_out = []
+                for b in candidates:
+                    retry_cmd = _build_command_with_browser_cookies(b)
+                    rc, retry_out = _run_retry(retry_cmd, f"YouTube yêu cầu xác thực — thử dùng cookies từ {b.capitalize()}")
+                    last_retry_out = retry_out
+                    if rc == 0:
+                        print(f"\n✅ SUCCESS: Đã tải thành công với cookies từ {b.capitalize()}!")
+                        return 0
+
+                    retry_out_text = '\n'.join(retry_out).lower()
+                    if ('could not copy chrome cookie database' in retry_out_text) or ('could not copy edge cookie database' in retry_out_text):
+                        print("\n⚠️  Không thể đọc cookies từ trình duyệt (có thể trình duyệt đang chạy/khóa dữ liệu).")
+                        print("💡 GỢI Ý: Hãy đóng hẳn Chrome/Edge rồi thử lại, hoặc xuất cookies.txt và chọn trong app.")
+                        # Nếu bị khóa DB thì thử browser còn lại luôn, biết đâu đọc được.
+                        continue
+
+                # Nếu retry vẫn thất bại, gom log để các nhánh chẩn đoán phía dưới xử lý tiếp
+                if last_retry_out:
+                    output_lines.extend(last_retry_out)
+                    output_text = '\n'.join(output_lines).lower()
+                    output_text_original = '\n'.join(output_lines)
+
+        # Xử lý lỗi không thể copy cookie database từ Chrome (Chrome đang chạy)
+        cookie_db_error = 'could not copy chrome cookie database' in output_text or 'could not copy edge cookie database' in output_text
+        if platform == 'tiktok' and cookie_db_error and tiktok_uses_browser_cookies:
+            print("\n⚠️  Không thể lấy cookies từ trình duyệt (trình duyệt đang chạy). Đang thử các cách khác...")
+            
+            # Kiểm tra xem đang dùng browser nào
+            used_browser = None
+            for i, arg in enumerate(command):
+                if arg == '--cookies-from-browser' and i + 1 < len(command):
+                    used_browser = command[i + 1]
+                    break
+            
+            # Thử Edge nếu đang dùng Chrome
+            if used_browser == 'chrome':
+                edge_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'User Data')
+                if os.path.exists(edge_path):
+                    print("🔄 Thử lấy cookies từ Edge thay vì Chrome...")
+                    # Tạo command mới với Edge
+                    retry_command = []
+                    skip_next = False
+                    for i, arg in enumerate(command):
+                        if skip_next:
+                            skip_next = False
+                            continue
+                        if arg == '--cookies-from-browser':
+                            retry_command.append(arg)
+                            retry_command.append('edge')  # Thay chrome bằng edge
+                            skip_next = True
+                        else:
+                            retry_command.append(arg)
+                    
+                    retry_process = subprocess.Popen(
+                        retry_command,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding='utf-8',
+                        errors='replace',
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                        env=env
+                    )
+                    
+                    retry_output = []
+                    for line in iter(retry_process.stdout.readline, ''):
+                        line = line.strip()
+                        if line:
+                            print(line, flush=True)
+                            retry_output.append(line)
+                    
+                    retry_process.wait()
+                    
+                    if retry_process.returncode == 0:
+                        print("\n✅ SUCCESS: Đã tải thành công với cookies từ Edge!")
+                        return 0
+                    else:
+                        retry_output_text = '\n'.join(retry_output).lower()
+                        if 'could not copy edge cookie database' in retry_output_text:
+                            print("⚠️  Edge cũng đang chạy. Thử với cookies file hoặc đóng trình duyệt...")
+            
+            # Nếu có cookies file, thử dùng nó
+            if cookies_path and os.path.exists(cookies_path):
+                print("🔄 Thử sử dụng cookies file thay vì cookies từ trình duyệt...")
+                # Tạo command mới không có --cookies-from-browser, chỉ dùng cookies file
+                retry_command = []
+                skip_next = False
+                has_cookies = False
+                for i, arg in enumerate(command):
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if arg == '--cookies-from-browser':
+                        skip_next = True
+                        continue  # Bỏ qua --cookies-from-browser và browser name
+                    elif arg == '--cookies':
+                        has_cookies = True
+                        retry_command.append(arg)
+                    else:
+                        retry_command.append(arg)
+                
+                # Đảm bảo có --cookies cookies_path
+                if not has_cookies:
+                    insert_pos = len(retry_command) - 1  # Trước URL
+                    retry_command.insert(insert_pos, cookies_path)
+                    retry_command.insert(insert_pos, '--cookies')
+                
+                retry_process = subprocess.Popen(
+                    retry_command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    env=env
+                )
+                
+                retry_output = []
+                for line in iter(retry_process.stdout.readline, ''):
+                    line = line.strip()
+                    if line:
+                        print(line, flush=True)
+                        retry_output.append(line)
+                
+                retry_process.wait()
+                
+                if retry_process.returncode == 0:
+                    print("\n✅ SUCCESS: Đã tải thành công với cookies file!")
+                    return 0
+                else:
+                    print("\n❌ Cookies file cũng không hoạt động.")
+                    output_lines.extend(retry_output)
+            
+            # Nếu không có cookies file, hướng dẫn người dùng
+            if not (cookies_path and os.path.exists(cookies_path)):
+                print("\n💡 HƯỚNG DẪN:")
+                print("   Cách 1: Đóng Chrome/Edge và thử lại")
+                print("   Cách 2: Xuất cookies.txt từ trình duyệt:")
+                print("      - Cài extension 'Get cookies.txt LOCALLY' hoặc 'cookies.txt'")
+                print("      - Đăng nhập TikTok trên trình duyệt")
+                print("      - Export cookies.txt và thêm vào ứng dụng")
+                print("   Cách 3: Thử với trình duyệt khác (Brave, Opera)")
+
         # Fallback riêng cho TikTok nếu gặp lỗi "Video not available" / status code 0
         if platform == 'tiktok' and ('video not available' in output_text or 'status code 0' in output_text):
             print("\n⚠️  TikTok trả về lỗi video not available/status 0. Đang thử lại với cấu hình fallback...")
             
-            # Thử nhiều cách fallback khác nhau
+            # Thử nhiều cách fallback khác nhau với cookies từ trình duyệt
             fallback_configs = [
                 {
-                    'name': 'Web client với headers đầy đủ',
+                    'name': 'Web client với cookies từ trình duyệt',
                     'extractor_args': 'tiktok:player_client=web',
+                    'use_browser_cookies': True,
                     'headers': [
                         ('Referer', 'https://www.tiktok.com/'),
                         ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'),
-                        ('Accept-Language', 'en-US,en;q=0.9'),
+                        ('Accept-Language', 'en-US,en;q=0.9,vi;q=0.8'),
+                        ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'),
                         ('Origin', 'https://www.tiktok.com'),
+                        ('Sec-Fetch-Site', 'same-origin'),
+                        ('Sec-Fetch-Mode', 'navigate'),
+                        ('Sec-Fetch-Dest', 'document'),
+                        ('Sec-Fetch-User', '?1'),
                     ]
                 },
                 {
-                    'name': 'Android client với download API',
+                    'name': 'Android client với cookies từ trình duyệt',
                     'extractor_args': 'tiktok:player_client=android,app_info=1,download_api=1',
+                    'use_browser_cookies': True,
                     'headers': [
                         ('Referer', 'https://www.tiktok.com/'),
                         ('User-Agent', 'Mozilla/5.0 (Linux; Android 12; SM-G996B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'),
+                        ('Accept-Language', 'en-US,en;q=0.9'),
+                    ]
+                },
+                {
+                    'name': 'iOS client với cookies từ trình duyệt',
+                    'extractor_args': 'tiktok:player_client=ios',
+                    'use_browser_cookies': True,
+                    'headers': [
+                        ('Referer', 'https://www.tiktok.com/'),
+                        ('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'),
                         ('Accept-Language', 'en-US,en;q=0.9'),
                     ]
                 }
@@ -452,6 +797,19 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
                     '--windows-filenames',
                 ]
                 
+                # Thêm cookies từ trình duyệt nếu được yêu cầu
+                if config.get('use_browser_cookies', False):
+                    # Thử Chrome trước, sau đó Edge
+                    chrome_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Google', 'Chrome', 'User Data')
+                    edge_path = os.path.join(os.getenv('LOCALAPPDATA', ''), 'Microsoft', 'Edge', 'User Data')
+                    if os.path.exists(chrome_path):
+                        tiktok_fallback_cmd.extend(['--cookies-from-browser', 'chrome'])
+                    elif os.path.exists(edge_path):
+                        tiktok_fallback_cmd.extend(['--cookies-from-browser', 'edge'])
+                    else:
+                        # Fallback: thử chrome anyway (yt-dlp sẽ tự xử lý)
+                        tiktok_fallback_cmd.extend(['--cookies-from-browser', 'chrome'])
+                
                 # Thêm headers
                 for header_name, header_value in config['headers']:
                     tiktok_fallback_cmd.extend(['--add-headers', f'{header_name}:{header_value}'])
@@ -467,6 +825,7 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
                 
                 if thumbnail:
                     tiktok_fallback_cmd.extend(['--write-thumbnail'])
+                # Cookies file sẽ được dùng như fallback nếu browser cookies không đủ
                 if cookies_path and os.path.exists(cookies_path):
                     tiktok_fallback_cmd.extend(['--cookies', cookies_path])
                 
@@ -504,7 +863,10 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             print("\n❌ Tất cả các cách fallback TikTok đều thất bại.")
             print("💡 GỢI Ý:")
             print("   - Video có thể đã bị xóa hoặc chuyển sang chế độ riêng tư")
-            print("   - Thử thêm cookies từ trình duyệt (đăng nhập TikTok trước)")
+            print("   - QUAN TRỌNG: TikTok yêu cầu đăng nhập để tải video")
+            print("   - Hãy mở Chrome/Edge, đăng nhập vào TikTok (www.tiktok.com)")
+            print("   - Sau đó thử tải lại - ứng dụng sẽ tự động lấy cookies từ trình duyệt")
+            print("   - Hoặc xuất cookies.txt từ extension và thêm vào ứng dụng")
             print("   - Kiểm tra xem video có còn tồn tại trên TikTok không")
         
         # Kiểm tra lỗi: chỉ có ảnh (thumbnail) có sẵn
