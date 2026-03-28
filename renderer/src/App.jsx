@@ -67,6 +67,15 @@ function App() {
   const [queue, setQueue] = useState([]);
   const [currentDownloadId, setCurrentDownloadId] = useState(null);
 
+  /** Link kênh TikTok (/@user), không phải từng video (/video/id) — cần tải cả playlist. */
+  const isTikTokChannelUrl = (rawUrl) => {
+    if (!rawUrl) return false;
+    const u = rawUrl.trim().toLowerCase();
+    if (!u.includes('tiktok.com')) return false;
+    if (u.includes('/video/')) return false;
+    return /tiktok\.com\/@[^/?#]+/.test(u);
+  };
+
   const detectPlatform = (rawUrl) => {
     if (!rawUrl) return null;
     const u = rawUrl.toLowerCase();
@@ -198,7 +207,8 @@ function App() {
       savePath,
       quality,
       downloadThumbnail,
-      ignorePlaylist,
+      // Kênh/profile TikTok: luôn cho phép playlist để tải toàn bộ video trên trang user
+      ignorePlaylist: isTikTokChannelUrl(url) ? false : ignorePlaylist,
       cookiesPath,
       downloadFormat,
       audioLang,
@@ -357,6 +367,11 @@ function App() {
         <div className="checkbox-group">
           <input type="checkbox" id="playlist-checkbox" checked={ignorePlaylist} onChange={(e) => setIgnorePlaylist(e.target.checked)}/>
           <label htmlFor="playlist-checkbox">Chỉ tải 1 video (bỏ qua playlist)</label>
+          {isTikTokChannelUrl(url) && (
+            <small style={{ display: 'block', marginTop: '4px', color: '#666', fontSize: '12px' }}>
+              Link kênh TikTok: sẽ tải toàn bộ video trên trang này (tùy chọn “chỉ 1 video” không áp dụng cho link /@…).
+            </small>
+          )}
         </div>
         <div className="cookie-group">
             <button onClick={() => handleAddCookieFile(false)} className="btn-secondary">

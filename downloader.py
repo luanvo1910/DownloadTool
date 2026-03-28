@@ -526,6 +526,18 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
             except Exception:
                 return False
 
+        def _strip_cookies_from_browser_cmd(cmd):
+            """Bỏ --cookies-from-browser <browser> khỏi lệnh yt-dlp."""
+            out = []
+            i = 0
+            while i < len(cmd):
+                if cmd[i] == '--cookies-from-browser' and i + 1 < len(cmd):
+                    i += 2
+                    continue
+                out.append(cmd[i])
+                i += 1
+            return out
+
         def _run_retry(retry_command, title: str):
             print(f"\n🔄 {title}...", flush=True)
             retry_process = subprocess.Popen(
@@ -673,8 +685,16 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
                 output_text = '\n'.join(output_lines).lower()
                 output_text_original = '\n'.join(output_lines)
 
-        # Xử lý lỗi không thể copy cookie database từ Chrome (Chrome đang chạy)
-        cookie_db_error = 'could not copy chrome cookie database' in output_text or 'could not copy edge cookie database' in output_text
+        # Xử lý lỗi không đọc được cookies từ trình duyệt (Chrome đang chạy, Edge DPAPI, ...)
+        def _browser_cookie_read_failed(text: str) -> bool:
+            t = text.lower()
+            return (
+                'could not copy chrome cookie database' in t
+                or 'could not copy edge cookie database' in t
+                or 'failed to decrypt with dpapi' in t
+            )
+
+        cookie_db_error = _browser_cookie_read_failed(output_text)
         if platform == 'tiktok' and cookie_db_error and tiktok_uses_browser_cookies:
             print("\n⚠️  Không thể lấy cookies từ trình duyệt (trình duyệt đang chạy). Đang thử các cách khác...")
             
@@ -729,8 +749,12 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
                         return 0
                     else:
                         retry_output_text = '\n'.join(retry_output).lower()
+                        output_lines.extend(retry_output)
+                        output_text = '\n'.join(output_lines).lower()
                         if 'could not copy edge cookie database' in retry_output_text:
                             print("⚠️  Edge cũng đang chạy. Thử với cookies file hoặc đóng trình duyệt...")
+                        elif 'failed to decrypt with dpapi' in retry_output_text:
+                            print("⚠️  Edge không giải mã được cookies (DPAPI). Sẽ thử tải không dùng cookies trình duyệt...")
             
             # Nếu có cookies file, thử dùng nó
             if cookies_path and os.path.exists(cookies_path):
@@ -785,10 +809,24 @@ def main(url, save_path, resources_path, cookies_path, quality, thumbnail, no_pl
                     print("\n❌ Cookies file cũng không hoạt động.")
                     output_lines.extend(retry_output)
             
-            # Nếu không có cookies file, hướng dẫn người dùng
+            # Không có cookies.txt: nhiều video TikTok công khai vẫn tải được không cần cookies
+            if not (cookies_path and os.path.exists(cookies_path)):
+                no_browser_cmd = _strip_cookies_from_browser_cmd(command)
+                if no_browser_cmd != command:
+                    rc_nb, out_nb = _run_retry(
+                        no_browser_cmd,
+                        "TikTok — thử không dùng cookies trình duyệt (video/ kênh công khai)",
+                    )
+                    if rc_nb == 0:
+                        print("\n✅ SUCCESS: Đã tải TikTok thành công không cần cookies trình duyệt.")
+                        return 0
+                    output_lines.extend(out_nb)
+                    output_text = '\n'.join(output_lines).lower()
+
+            # Nếu vẫn lỗi, hướng dẫn người dùng
             if not (cookies_path and os.path.exists(cookies_path)):
                 print("\n💡 HƯỚNG DẪN:")
-                print("   Cách 1: Đóng Chrome/Edge và thử lại")
+                print("   Cách 1: Đóng Chrome/Edge và thử lại (để app đọc cookies trình duyệt)")
                 print("   Cách 2: Xuất cookies.txt từ trình duyệt:")
                 print("      - Cài extension 'Get cookies.txt LOCALLY' hoặc 'cookies.txt'")
                 print("      - Đăng nhập TikTok trên trình duyệt")
